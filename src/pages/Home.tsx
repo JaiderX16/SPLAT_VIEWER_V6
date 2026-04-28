@@ -64,6 +64,11 @@ const DEMO_SCENES = [
     url: 'https://huggingface.co/cakewalk/splat-data/resolve/main/plush.splat',
     format: 'splat',
   },
+  {
+    name: 'parque-constitucion',
+    url: 'https://huggingface.co/datasets/JaiderX16/MemorIA/resolve/main/constitucion.splat',
+    format: 'splat',
+  },
 ];
 
 interface SceneInfo {

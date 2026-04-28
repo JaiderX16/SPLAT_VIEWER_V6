@@ -42,9 +42,9 @@ export interface ViewerOptions {
 }
 
 const defaultOptions: ViewerOptions = {
-  cameraUp: [0, -1, -0.6],
-  initialCameraPosition: [-1, -4, 6],
-  initialCameraLookAt: [0, 4, 0],
+  cameraUp: [0, 1, 0],
+  initialCameraPosition: [0, 2, 10],
+  initialCameraLookAt: [0, 0, 0],
   gpuAcceleratedSort: true,
   sharedMemoryForWorkers: true,
   integerBasedSort: true,
