@@ -21,7 +21,6 @@ export const ProgressiveLoader: React.FC<ProgressiveLoaderProps> = ({ state }) =
   const isError = state.status === 'error';
   const isDone = state.status === 'done';
   const isProcessing = state.status === 'processing';
-  const isDownloading = state.status === 'downloading';
 
   return (
     <div className="absolute inset-x-0 bottom-6 z-50 flex items-center justify-center pointer-events-none">

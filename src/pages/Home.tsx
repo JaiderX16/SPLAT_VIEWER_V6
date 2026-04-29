@@ -4,7 +4,9 @@ import GaussianSplatViewer, { type GaussianSplatViewerHandle } from '@/component
 import ProgressiveLoader, { type ProgressiveLoadState } from '@/components/ProgressiveLoader';
 import SceneUploader, { type LoadOptions } from '@/components/SceneUploader';
 import InfoPanel from '@/components/InfoPanel';
+// @ts-ignore
 import Sidebar from '@/components/Sidebar';
+// @ts-ignore
 import SidebarMobileSheet from '@/components/SidebarMobileSheet';
 import {
   Dialog,
