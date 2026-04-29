@@ -136,7 +136,9 @@ const GaussianSplatViewer = forwardRef<GaussianSplatViewerHandle, GaussianSplatV
           cancelAnimationFrame(introRafRef.current);
           introRafRef.current = null;
         }
-        viewer.dispose();
+        // dispose() is async – its .finally() may try removeChild on a node
+        // that React already unmounted (StrictMode double-invoke).
+        viewer.dispose().catch(() => {});
         viewerRef.current = null;
         isRunningRef.current = false;
       };

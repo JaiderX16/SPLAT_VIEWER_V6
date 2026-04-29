@@ -24,45 +24,31 @@ export const ProgressiveLoader: React.FC<ProgressiveLoaderProps> = ({ state }) =
   const isDownloading = state.status === 'downloading';
 
   return (
-    <div className="absolute inset-x-0 bottom-0 z-50 flex flex-col items-center justify-end p-6 pointer-events-none">
-      <div className="w-full max-w-md bg-black/80 backdrop-blur-md border border-white/10 rounded-2xl p-5 shadow-2xl pointer-events-auto">
-        <div className="flex items-center gap-3 mb-3">
-          {isError ? (
-            <AlertCircle className="w-5 h-5 text-red-400 animate-pulse" />
-          ) : isDone ? (
-            <CheckCircle2 className="w-5 h-5 text-green-400" />
-          ) : isProcessing ? (
-            <Loader2 className="w-5 h-5 text-amber-400 animate-spin" />
-          ) : (
-            <Download className="w-5 h-5 text-blue-400 animate-bounce" />
-          )}
-          <span className={`text-sm font-semibold ${
-            isError ? 'text-red-300' : isDone ? 'text-green-300' : 'text-white'
-          }`}>
-            {state.message}
-          </span>
-        </div>
-
-        <div className="relative">
-          <Progress
-            value={state.percent}
-            className="h-3 bg-white/10"
-          />
-          <div className="absolute right-0 -top-5 text-xs text-white/70 font-mono">
-            {state.percentLabel}
-          </div>
-        </div>
-
-        {state.sectionCount !== undefined && state.totalSections !== undefined && (
-          <div className="mt-2 text-xs text-white/50 text-center">
-            Section {state.sectionCount} of {state.totalSections}
-          </div>
+    <div className="absolute inset-x-0 bottom-6 z-50 flex items-center justify-center pointer-events-none">
+      <div className="flex items-center gap-3 h-14 px-5 bg-black/80 backdrop-blur-md border border-white/10 rounded-full shadow-2xl pointer-events-auto min-w-[360px] max-w-[90vw]">
+        {isError ? (
+          <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+        ) : isDone ? (
+          <CheckCircle2 className="w-4 h-4 text-green-400 shrink-0" />
+        ) : isProcessing ? (
+          <Loader2 className="w-4 h-4 text-amber-400 animate-spin shrink-0" />
+        ) : (
+          <Download className="w-4 h-4 text-blue-400 animate-bounce shrink-0" />
         )}
 
-        <div className="mt-2 flex items-center justify-between text-xs text-white/40">
-          <span>{isDownloading ? 'Downloading chunks...' : isProcessing ? 'Building splat mesh...' : isDone ? 'Ready to view' : ''}</span>
-          <span>{state.percent.toFixed(1)}%</span>
+        <span className={`text-sm font-medium truncate ${
+          isError ? 'text-red-300' : isDone ? 'text-green-300' : 'text-white'
+        }`}>
+          {state.message}
+        </span>
+
+        <div className="flex-1 min-w-[80px] max-w-[140px]">
+          <Progress value={state.percent} className="h-1.5 bg-white/10" />
         </div>
+
+        <span className="text-xs text-white/60 font-mono shrink-0 w-12 text-right">
+          {state.percentLabel}
+        </span>
       </div>
     </div>
   );

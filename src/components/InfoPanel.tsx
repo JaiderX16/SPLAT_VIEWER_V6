@@ -21,23 +21,11 @@ interface InfoPanelProps {
 }
 
 export const InfoPanel: React.FC<InfoPanelProps> = ({ info, visible, onToggle }) => {
-  if (!visible) {
-    return (
-      <Button
-        onClick={onToggle}
-        variant="ghost"
-        size="sm"
-        className="absolute top-4 right-4 z-40 bg-black/60 hover:bg-black/80 text-white/70 hover:text-white backdrop-blur-sm"
-      >
-        <Grid3X3 className="w-4 h-4 mr-1" />
-        Info
-      </Button>
-    );
-  }
+  if (!visible) return null;
 
   if (!info) {
     return (
-      <div className="absolute top-4 right-4 z-40 bg-black/80 backdrop-blur-md border border-white/10 rounded-xl p-4 text-white/50 text-sm min-w-[280px]">
+      <div className="absolute top-4 right-20 z-40 bg-black/80 backdrop-blur-md border border-white/10 rounded-3xl p-5 text-white/50 text-sm min-w-[280px]">
         <div className="flex items-center justify-between mb-2">
           <span className="font-semibold text-white/70">Scene Info</span>
           <Button onClick={onToggle} variant="ghost" size="icon" className="h-6 w-6 text-white/50 hover:text-white">
@@ -52,7 +40,7 @@ export const InfoPanel: React.FC<InfoPanelProps> = ({ info, visible, onToggle })
   const splatRenderPct = info.splatCount > 0 ? (info.splatRenderCount / info.splatCount * 100).toFixed(1) : '0.0';
 
   return (
-    <div className="absolute top-4 right-4 z-40 bg-black/80 backdrop-blur-md border border-white/10 rounded-xl p-4 text-white/80 text-sm min-w-[280px] shadow-2xl">
+    <div className="absolute top-4 right-20 z-40 bg-black/80 backdrop-blur-md border border-white/10 rounded-3xl p-5 text-white/80 text-sm min-w-[280px] shadow-2xl">
       <div className="flex items-center justify-between mb-3">
         <span className="font-semibold text-white flex items-center gap-2">
           <Grid3X3 className="w-4 h-4 text-blue-400" />
