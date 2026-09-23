@@ -3,7 +3,7 @@ import * as THREE from 'three';
 /**
  * "Editor view" picture-in-picture overlay, like the scene view in game engines.
  *
- * It renders a small secondary viewport (top-right corner) that shows the main
+ * It renders a small secondary viewport (bottom-right corner) that shows the main
  * camera from a fixed isometric vantage point: a ground grid, a wireframe
  * frustum (the exact volume being rendered), and a camera gizmo. It also draws
  * the splat mesh in that viewport — since the mesh's render indexes are already
@@ -137,14 +137,13 @@ export class EditorOverlay {
     const cssH = rootElement.offsetHeight;
     if (cssW <= 0 || cssH <= 0) return;
 
-    const pr = renderer.getPixelRatio();
-    const devW = Math.round(cssW * pr);
-    const devH = Math.round(cssH * pr);
-    const pipW = Math.max(96, Math.round(devW * 0.3));
-    const pipH = Math.max(96, Math.round(devH * 0.3));
-    const margin = Math.round(12 * pr);
-    const pipX = devW - pipW - margin;
-    const pipY = devH - pipH - margin;
+    // three.js setViewport/setScissor take LOGICAL (CSS) pixels and multiply by
+    // the pixel ratio internally — pass CSS pixels, not device pixels.
+    const pipW = Math.max(96, Math.round(cssW * 0.3));
+    const pipH = Math.max(96, Math.round(cssH * 0.3));
+    const margin = 12;
+    const pipX = cssW - pipW - margin; // right edge
+    const pipY = margin; // bottom edge (bottom-right corner)
 
     this.overviewCamera.aspect = pipW / pipH;
     this.overviewCamera.updateProjectionMatrix();
@@ -168,7 +167,13 @@ export class EditorOverlay {
     renderer.clear(true, true, true);
 
     const splatMesh = this.viewer.splatMesh as THREE.Object3D | null;
-    if (splatMesh) renderer.render(splatMesh, this.overviewCamera);
+    if (splatMesh) {
+      try {
+        renderer.render(splatMesh, this.overviewCamera);
+      } catch (error) {
+        console.error('EditorOverlay: splat render failed', error);
+      }
+    }
     renderer.render(this.overviewScene, this.overviewCamera);
 
     renderer.autoClear = prevAutoClear;

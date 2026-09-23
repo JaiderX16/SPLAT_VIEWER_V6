@@ -712,7 +712,7 @@ export default function Home() {
 
       {/* ── Editor view overlay frame (matches the GL picture-in-picture) ── */}
       {editorView && (
-        <div className="absolute top-3 right-3 w-[30%] h-[30%] min-w-[120px] min-h-[120px] pointer-events-none border border-cyan-400/40 rounded-md z-[200] bg-transparent" />
+        <div className="absolute bottom-3 right-3 w-[30%] h-[30%] min-w-[120px] min-h-[120px] pointer-events-none border border-cyan-400/40 rounded-md z-[200] bg-transparent" />
       )}
 
       {/* ── Advanced controls panel ── */}
