@@ -10,8 +10,6 @@ function isSharedArrayBufferAvailable(): boolean {
 
 // ─── Camera settings (replicados del proyecto de referencia) ─────────────────
 const CAMERA = {
-  DIST_FAR: 5.0,
-  DIST_NEAR: 2.3,
   UP: [0, -1, 0] as [number, number, number],
   INITIAL_POSITION: [0, -2.4, 4.4] as [number, number, number],
   LOOK_AT: [0, 0, 0] as [number, number, number],
@@ -42,7 +40,8 @@ const VIEW_UPS: Record<Exclude<CameraView, 'reset'>, [number, number, number]> =
 };
 
 const ROTATION = {
-  SPEED_FAST: 4.0,
+  SPEED_INTRO: 2.2,
+  SPEED_SLOW: 0.8,
 };
 
 const DAMPING = {
@@ -51,7 +50,9 @@ const DAMPING = {
 };
 
 const ANIMATION = {
-  INTRO_ZOOM_DURATION: 4000,
+  INTRO_DURATION: 6000,
+  INTRO_START_DISTANCE: 9.0,
+  INTRO_END_DISTANCE: 2.6,
 };
 
 /** Named camera viewpoints, mirroring SuperSplat-style view presets. */
@@ -165,10 +166,21 @@ const GaussianSplatViewer = forwardRef<GaussianSplatViewerHandle, GaussianSplatV
         c.dampingFactor = DAMPING.FACTOR;
         c.minPolarAngle = CAMERA.MIN_POLAR_ANGLE;
         c.maxPolarAngle = CAMERA.MAX_POLAR_ANGLE;
-        c.minDistance = CAMERA.DIST_FAR;
-        c.maxDistance = CAMERA.DIST_FAR;
+        c.minDistance = CAMERA.MIN_DISTANCE;
+        c.maxDistance = CAMERA.MAX_DISTANCE;
         c.autoRotate = true;
-        c.autoRotateSpeed = ROTATION.SPEED_FAST;
+        c.autoRotateSpeed = ROTATION.SPEED_INTRO;
+        // Stop the auto-orbit (and cancel the entrance) the moment the user
+        // grabs the scene, so it never fights the user's input.
+        c.addEventListener('start', () => {
+          c.autoRotate = false;
+          if (introRafRef.current !== null) {
+            cancelAnimationFrame(introRafRef.current);
+            introRafRef.current = null;
+          }
+          c.minDistance = CAMERA.MIN_DISTANCE;
+          c.maxDistance = CAMERA.MAX_DISTANCE;
+        });
       }
 
       // ── Editor view overlay (picture-in-picture debug view) ────────────────
@@ -207,21 +219,37 @@ const GaussianSplatViewer = forwardRef<GaussianSplatViewerHandle, GaussianSplatV
       };
     }, []);
 
-    const runIntroZoom = (viewer: any) => {
-      if (!viewer?.controls) return;
+    const runIntroAnimation = (viewer: any) => {
+      const controls = viewer?.controls;
+      const camera = viewer?.camera;
+      if (!controls || !camera) return;
+
+      // Start the cinematic entrance from a far vantage point, then glide in
+      // while slowly orbiting, to showcase the place.
+      const viewDir = new THREE.Vector3().subVectors(camera.position, controls.target).normalize();
+      camera.position.copy(controls.target).addScaledVector(viewDir, ANIMATION.INTRO_START_DISTANCE);
+      camera.lookAt(controls.target);
+      controls.autoRotate = true;
+      controls.autoRotateSpeed = ROTATION.SPEED_INTRO;
+
       const introStart = performance.now();
       const tick = () => {
         if (!viewer.controls) return;
-        const t = Math.min((performance.now() - introStart) / ANIMATION.INTRO_ZOOM_DURATION, 1);
-        const ease = 1 - Math.pow(1 - t, 3);
-        const dist = CAMERA.DIST_FAR + (CAMERA.DIST_NEAR - CAMERA.DIST_FAR) * ease;
+        const t = Math.min((performance.now() - introStart) / ANIMATION.INTRO_DURATION, 1);
+        // ease-in-out cubic for a clean, cinematic motion.
+        const ease = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+        const dist = ANIMATION.INTRO_START_DISTANCE +
+          (ANIMATION.INTRO_END_DISTANCE - ANIMATION.INTRO_START_DISTANCE) * ease;
         viewer.controls.minDistance = dist;
         viewer.controls.maxDistance = dist;
         if (t < 1) {
           introRafRef.current = requestAnimationFrame(tick);
         } else {
+          // Entrance finished: settle into a slow, smooth orbit.
           viewer.controls.minDistance = CAMERA.MIN_DISTANCE;
           viewer.controls.maxDistance = CAMERA.MAX_DISTANCE;
+          viewer.controls.autoRotateSpeed = ROTATION.SPEED_SLOW;
+          viewer.controls.update();
           introRafRef.current = null;
         }
       };
@@ -255,7 +283,7 @@ const GaussianSplatViewer = forwardRef<GaussianSplatViewerHandle, GaussianSplatV
             isRunningRef.current = true;
           }
 
-          runIntroZoom(viewer);
+          runIntroAnimation(viewer);
           onLoadCompleteRef.current?.();
         } catch (e) {
           const error = e instanceof Error ? e : new Error(String(e));
@@ -285,7 +313,7 @@ const GaussianSplatViewer = forwardRef<GaussianSplatViewerHandle, GaussianSplatV
             isRunningRef.current = true;
           }
 
-          runIntroZoom(viewer);
+          runIntroAnimation(viewer);
           onLoadCompleteRef.current?.();
         } catch (e) {
           const error = e instanceof Error ? e : new Error(String(e));

@@ -11,6 +11,7 @@ A modern React + TypeScript wrapper for the [GaussianSplats3D](https://github.co
 - **Splat scale control** — Adjust the scale multiplier in real-time
 - **Camera focus** — Auto-center the camera on the loaded scene
 - **Click/tap to approach** — Click a splat to smoothly fly the camera toward it and make it the new orbit center (WoW-style fluid navigation)
+- **Cinematic intro & auto-orbit** — Smooth entrance fly-in showcasing the scene, then a slow auto-orbit that stops the moment you interact
 - **Real-time info panel** — FPS, splat count, camera position, sort time, and more
 - **Multi-scene support** — Load multiple splat scenes simultaneously
 - **Advanced controls** — Camera view presets (front/back/top/…), orthographic/perspective toggle, FOV, spherical-harmonics quality, background color, grid & axes (SuperSplat-style)
