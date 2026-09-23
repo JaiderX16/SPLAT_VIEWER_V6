@@ -1,8 +1,72 @@
 diff --git a/node_modules/@mkkellogg/gaussian-splats-3d/build/gaussian-splats-3d.module.js b/node_modules/@mkkellogg/gaussian-splats-3d/build/gaussian-splats-3d.module.js
-index 5edf354..21e3050 100644
+index 5edf354..1ba58fb 100644
 --- a/node_modules/@mkkellogg/gaussian-splats-3d/build/gaussian-splats-3d.module.js
 +++ b/node_modules/@mkkellogg/gaussian-splats-3d/build/gaussian-splats-3d.module.js
-@@ -14195,14 +14195,15 @@ class Viewer {
+@@ -12463,6 +12463,9 @@ class Viewer {
+ 
+         this.previousCameraTarget = new THREE.Vector3();
+         this.nextCameraTarget = new THREE.Vector3();
++        this.transitionStartCameraPosition = new THREE.Vector3();
++        this.transitionEndCameraPosition = new THREE.Vector3();
++        this.transitioningCameraTargetDuration = 0.9;
+ 
+         this.mousePosition = new THREE.Vector2();
+         this.mouseDownPosition = new THREE.Vector2();
+@@ -12779,9 +12782,18 @@ class Viewer {
+                     const hit = outHits[0];
+                     const intersectionPoint = hit.origin;
+                     toNewFocalPoint.copy(intersectionPoint).sub(this.camera.position);
+-                    if (toNewFocalPoint.length() > MINIMUM_DISTANCE_TO_NEW_FOCAL_POINT) {
++                    const focalPointDistance = toNewFocalPoint.length();
++                    if (focalPointDistance > MINIMUM_DISTANCE_TO_NEW_FOCAL_POINT) {
+                         this.previousCameraTarget.copy(this.controls.target);
+                         this.nextCameraTarget.copy(intersectionPoint);
++                        this.transitionStartCameraPosition.copy(this.camera.position);
++                        // Fly toward the clicked point and settle at ~45% of the
++                        // current distance (clamped to the controls' minimum),
++                        // along the current view direction, for a fluid feel.
++                        const endDistance = Math.max(focalPointDistance * 0.45, this.controls.minDistance || 0.5);
++                        toNewFocalPoint.negate().normalize(); // now points from hit point back toward the camera
++                        this.transitionEndCameraPosition.copy(intersectionPoint).addScaledVector(toNewFocalPoint, endDistance);
++                        this.transitioningCameraTargetDuration = 0.9;
+                         this.transitioningCameraTarget = true;
+                         this.transitioningCameraTargetStartTime = getCurrentTime();
+                     }
+@@ -13933,21 +13945,25 @@ class Viewer {
+     updateCameraTransition = function() {
+ 
+         let tempCameraTarget = new THREE.Vector3();
+-        let toPreviousTarget = new THREE.Vector3();
+-        let toNextTarget = new THREE.Vector3();
++        let tempCameraPosition = new THREE.Vector3();
+ 
+         return function(currentTime) {
+             if (this.transitioningCameraTarget) {
+-                toPreviousTarget.copy(this.previousCameraTarget).sub(this.camera.position).normalize();
+-                toNextTarget.copy(this.nextCameraTarget).sub(this.camera.position).normalize();
+-                const rotationAngle = Math.acos(toPreviousTarget.dot(toNextTarget));
+-                const rotationSpeed = rotationAngle / (Math.PI / 3) * .65 + .3;
+-                const t = (rotationSpeed / rotationAngle * (currentTime - this.transitioningCameraTargetStartTime));
++                const elapsed = currentTime - this.transitioningCameraTargetStartTime;
++                const duration = this.transitioningCameraTargetDuration || 0.9;
++                let t = Math.min(elapsed / duration, 1.0);
++                // ease-in-out cubic for a smooth, fluid approach.
++                t = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
++
+                 tempCameraTarget.copy(this.previousCameraTarget).lerp(this.nextCameraTarget, t);
+-                this.camera.lookAt(tempCameraTarget);
++                tempCameraPosition.copy(this.transitionStartCameraPosition)
++                                   .lerp(this.transitionEndCameraPosition, t);
++                this.camera.position.copy(tempCameraPosition);
+                 this.controls.target.copy(tempCameraTarget);
++                this.camera.lookAt(tempCameraTarget);
+                 if (t >= 1.0) {
+                     this.transitioningCameraTarget = false;
++                    this.controls.update();
+                 }
+             }
+         };
+@@ -14195,14 +14211,15 @@ class Viewer {
              return tempMax.copy(node.max).sub(node.min).length();
          };
  
@@ -24,7 +88,7 @@ index 5edf354..21e3050 100644
  
              const splatTree = this.splatMesh.getSplatTree();
  
-@@ -14220,6 +14221,8 @@ class Viewer {
+@@ -14220,6 +14237,8 @@ class Viewer {
                          this.splatMesh.getSceneTransform(s, sceneTransform);
                          modelView.multiply(sceneTransform);
                      }
@@ -33,7 +97,7 @@ index 5edf354..21e3050 100644
                      const nodeCount = subTree.nodesWithIndexes.length;
                      for (let i = 0; i < nodeCount; i++) {
                          const node = subTree.nodesWithIndexes[i];
-@@ -14227,18 +14230,13 @@ class Viewer {
+@@ -14227,18 +14246,13 @@ class Viewer {
                          tempVector.copy(node.center).applyMatrix4(modelView);
  
                          const distanceToNode = tempVector.length();
