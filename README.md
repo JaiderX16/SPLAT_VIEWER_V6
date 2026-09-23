@@ -40,8 +40,9 @@ The viewer ships with mobile-first optimizations that can be tuned in `src/compo
 | SH degree 0 | Only base color is decoded by default (selectable up to degree 3 from the advanced controls), cutting shader work and memory bandwidth. |
 | Half-float covariances | Covariance data is stored as 16-bit floats on the GPU. |
 | No auto-rotate | Idle scenes stop re-sorting and re-rendering every frame. |
+| Tightened frustum culling | Only splats in/near the camera frustum are sorted and drawn (video-game style). The library's default margin was too loose; it is tightened via `patch-package` (`patches/@mkkellogg+gaussian-splats-3d+0.4.7.patch`). |
 
-Frustum culling, lazy/partial sorting, and Web-Worker sorting are provided by the underlying `GaussianSplats3D` library.
+Lazy/partial sorting and Web-Worker sorting are provided by the underlying `GaussianSplats3D` library.
 
 For browser-side validation in Chrome, open DevTools, press `Esc`, open the Rendering drawer and enable `Frame Rendering Stats`. Watch FPS and GPU memory while orbiting the scene; memory that rises continuously after replacing scenes indicates missing disposal or retained resources.
 

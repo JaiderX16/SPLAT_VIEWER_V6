@@ -1,0 +1,15 @@
+diff --git a/node_modules/@mkkellogg/gaussian-splats-3d/build/gaussian-splats-3d.module.js b/node_modules/@mkkellogg/gaussian-splats-3d/build/gaussian-splats-3d.module.js
+index 5edf354..ffcaa3b 100644
+--- a/node_modules/@mkkellogg/gaussian-splats-3d/build/gaussian-splats-3d.module.js
++++ b/node_modules/@mkkellogg/gaussian-splats-3d/build/gaussian-splats-3d.module.js
+@@ -14236,8 +14236,8 @@ class Viewer {
+                         const cameraAngleYZDot = forward.dot(tempVectorYZ);
+ 
+                         const ns = nodeSize(node);
+-                        const outOfFovY = cameraAngleYZDot < (cosFovYOver2 - .6);
+-                        const outOfFovX = cameraAngleXZDot < (cosFovXOver2 - .6);
++                        const outOfFovY = cameraAngleYZDot < (cosFovYOver2 - .2);
++                        const outOfFovX = cameraAngleXZDot < (cosFovXOver2 - .2);
+                         if (!gatherAllNodes && ((outOfFovX || outOfFovY) && distanceToNode > ns)) {
+                             continue;
+                         }
