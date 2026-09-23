@@ -4,9 +4,11 @@ import GaussianSplatViewer, { type GaussianSplatViewerHandle } from '@/component
 import ProgressiveLoader, { type ProgressiveLoadState } from '@/components/ProgressiveLoader';
 import SceneUploader, { type LoadOptions } from '@/components/SceneUploader';
 import InfoPanel from '@/components/InfoPanel';
-// @ts-ignore
+import PerformanceBenchmarkPanel, { type PerformanceBenchmarkInfo } from '@/components/PerformanceBenchmarkPanel';
+import { estimateGaussianSplatVramMB, scoreBenchmark } from '@/lib/performanceBenchmark';
+// @ts-expect-error Sidebar is authored in JS in this project.
 import Sidebar from '@/components/Sidebar';
-// @ts-ignore
+// @ts-expect-error SidebarMobileSheet is authored in JS in this project.
 import SidebarMobileSheet from '@/components/SidebarMobileSheet';
 import {
   Dialog,
@@ -25,9 +27,10 @@ import {
   Settings2,
   Crosshair,
   ChevronRight,
+  Activity,
 } from 'lucide-react';
 
-const DEMO_SCENES = [
+const DEMO_SCENES: Array<{ name: string; url: string; format: LoadOptions['format'] }> = [
   {
     name: 'APATA FUENTE',
     url: 'https://huggingface.co/datasets/JaiderX16/MemorIA/resolve/main/APATA-FUENTEt.splat',
@@ -88,9 +91,83 @@ function useIsMobile() {
   return isMobile;
 }
 
+interface BrowserCapabilities {
+  webgl2: boolean;
+  webgpu: boolean;
+}
+
+interface PerformanceWithMemory extends Performance {
+  memory?: {
+    usedJSHeapSize?: number;
+  };
+}
+
+interface Vector3Like {
+  x: number;
+  y: number;
+  z: number;
+}
+
+interface RendererLike {
+  domElement?: unknown;
+  getPixelRatio?: () => number;
+  info?: {
+    render?: {
+      calls?: number;
+    };
+  };
+}
+
+interface SplatMeshLike {
+  renderer?: RendererLike;
+  getSplatCount?: () => number;
+  getSplatScale?: () => number;
+  getPointCloudModeEnabled?: () => boolean;
+}
+
+interface RawViewerLike {
+  renderer?: RendererLike;
+  webGLRenderer?: RendererLike;
+  threeRenderer?: RendererLike;
+  splatMesh?: SplatMeshLike;
+  camera?: {
+    position?: Vector3Like;
+    up?: Vector3Like;
+  };
+  controls?: {
+    target?: Vector3Like;
+  };
+  currentFPS?: number | null;
+  lastSortTime?: number;
+  splatRenderCount?: number;
+}
+
+function readBrowserCapabilities(): BrowserCapabilities {
+  const canvas = document.createElement('canvas');
+  const webgl2 = Boolean(canvas.getContext('webgl2'));
+  const webgpu = Boolean((navigator as Navigator & { gpu?: unknown }).gpu);
+  return { webgl2, webgpu };
+}
+
+function readJSHeapMB(): number | null {
+  const bytes = (performance as PerformanceWithMemory).memory?.usedJSHeapSize;
+  return typeof bytes === 'number' ? Math.round((bytes / 1024 / 1024) * 10) / 10 : null;
+}
+
+function getRenderer(rawViewer: RawViewerLike | null): RendererLike | null {
+  return rawViewer?.renderer ?? rawViewer?.webGLRenderer ?? rawViewer?.threeRenderer ?? rawViewer?.splatMesh?.renderer ?? null;
+}
+
+function getRendererCanvas(renderer: RendererLike | null): HTMLCanvasElement | null {
+  if (renderer?.domElement instanceof HTMLCanvasElement) return renderer.domElement;
+  return document.querySelector<HTMLCanvasElement>('canvas');
+}
+
 export default function Home() {
   const viewerRef = useRef<GaussianSplatViewerHandle>(null);
   const infoIntervalRef = useRef<ReturnType<typeof setInterval>>(null);
+  const activeObjectUrlRef = useRef<string | null>(null);
+  const browserCapabilitiesRef = useRef<BrowserCapabilities | null>(null);
 
   const [progressiveState, setProgressiveState] = useState<ProgressiveLoadState>({
     percent: 0,
@@ -102,6 +179,8 @@ export default function Home() {
   const [hasScene, setHasScene] = useState(false);
   const [sceneInfo, setSceneInfo] = useState<SceneInfo | null>(null);
   const [infoVisible, setInfoVisible] = useState(false);
+  const [benchmarkInfo, setBenchmarkInfo] = useState<PerformanceBenchmarkInfo | null>(null);
+  const [benchmarkVisible, setBenchmarkVisible] = useState(true);
   const [showUploader, setShowUploader] = useState(false);
   const [pointCloudMode, setPointCloudMode] = useState(false);
   const [splatScale, setSplatScale] = useState(1.0);
@@ -111,10 +190,16 @@ export default function Home() {
 
   const isMobile = useIsMobile();
 
+  const revokeActiveObjectUrl = useCallback(() => {
+    if (!activeObjectUrlRef.current) return;
+    URL.revokeObjectURL(activeObjectUrlRef.current);
+    activeObjectUrlRef.current = null;
+  }, []);
+
   const updateSceneInfo = useCallback(() => {
     const viewer = viewerRef.current;
     if (!viewer) return;
-    const rawViewer = viewer.viewer as any;
+    const rawViewer = viewer.viewer as RawViewerLike | null;
     if (!rawViewer) return;
 
     const mesh = rawViewer.splatMesh;
@@ -125,11 +210,31 @@ export default function Home() {
 
     const splatCount = mesh.getSplatCount?.() || 0;
     const splatRenderCount = rawViewer.splatRenderCount || 0;
+    const activeSplats = splatRenderCount > 0 ? splatRenderCount : splatCount;
+    const fps = typeof rawViewer.currentFPS === 'number' ? rawViewer.currentFPS : null;
+    const sortTimeMs = typeof rawViewer.lastSortTime === 'number' ? rawViewer.lastSortTime : 0;
+    const renderer = getRenderer(rawViewer);
+    const canvas = getRendererCanvas(renderer);
+    const rendererPixelRatio = typeof renderer?.getPixelRatio === 'function' ? renderer.getPixelRatio() : null;
+    const renderPixelRatio = canvas && canvas.clientWidth > 0
+      ? Math.round((canvas.width / canvas.clientWidth) * 10) / 10
+      : rendererPixelRatio;
+    const canvasPixels = canvas ? canvas.width * canvas.height : null;
+    const renderSize = canvas ? `${canvas.width}x${canvas.height}` : 'N/A';
+    const rawDrawCalls = renderer?.info?.render?.calls;
+    const drawCalls = typeof rawDrawCalls === 'number' ? rawDrawCalls : null;
+    const estimatedVramMB = estimateGaussianSplatVramMB({
+      totalSplats: splatCount,
+      activeSplats,
+      canvasPixels,
+    });
+    const capabilities = browserCapabilitiesRef.current ?? readBrowserCapabilities();
+    browserCapabilitiesRef.current = capabilities;
 
     setSceneInfo({
       splatCount,
       splatRenderCount,
-      fps: rawViewer.currentFPS || null,
+      fps,
       cameraPosition: camera.position
         ? `${camera.position.x.toFixed(2)}, ${camera.position.y.toFixed(2)}, ${camera.position.z.toFixed(2)}`
         : 'N/A',
@@ -139,9 +244,31 @@ export default function Home() {
       cameraUp: camera.up
         ? `${camera.up.x.toFixed(2)}, ${camera.up.y.toFixed(2)}, ${camera.up.z.toFixed(2)}`
         : 'N/A',
-      sortTime: rawViewer.lastSortTime || 0,
+      sortTime: sortTimeMs,
       splatScale: mesh.getSplatScale?.() || 1.0,
       pointCloudMode: mesh.getPointCloudModeEnabled?.() || false,
+    });
+
+    setBenchmarkInfo({
+      fps,
+      estimatedVramMB,
+      jsHeapMB: readJSHeapMB(),
+      totalSplats: splatCount,
+      activeSplats,
+      drawCalls,
+      sortTimeMs,
+      devicePixelRatio: window.devicePixelRatio || 1,
+      renderPixelRatio,
+      renderSize,
+      webgl2: capabilities.webgl2,
+      webgpu: capabilities.webgpu,
+      score: scoreBenchmark({
+        fps,
+        estimatedVramMB,
+        activeSplats,
+        drawCalls,
+        renderPixelRatio,
+      }),
     });
   }, []);
 
@@ -156,6 +283,13 @@ export default function Home() {
       infoIntervalRef.current = null;
     }
   }, []);
+
+  useEffect(() => {
+    return () => {
+      stopInfoLoop();
+      revokeActiveObjectUrl();
+    };
+  }, [stopInfoLoop, revokeActiveObjectUrl]);
 
   const handleProgress = useCallback((percent: number, percentLabel: string, status: number) => {
     let stateStatus: ProgressiveLoadState['status'] = 'downloading';
@@ -208,6 +342,7 @@ export default function Home() {
   const handleError = useCallback((error: Error) => {
     console.error('Load error:', error);
     setIsLoading(false);
+    setBenchmarkInfo(null);
     setProgressiveState({
       percent: 0,
       percentLabel: '0%',
@@ -225,6 +360,7 @@ export default function Home() {
         await viewerRef.current.removeSplatScene(0);
         setHasScene(false);
         setSceneInfo(null);
+        setBenchmarkInfo(null);
         stopInfoLoop();
       }
     } catch (e) {
@@ -256,23 +392,32 @@ export default function Home() {
     }
   }, [handleError, stopInfoLoop]);
 
-  const handleLoadFile = useCallback((file: File, options: LoadOptions) => {
+  const handleLoadFile = useCallback(async (file: File, options: LoadOptions) => {
     const url = URL.createObjectURL(file);
-    loadScene(url, options);
-  }, [loadScene]);
+    revokeActiveObjectUrl();
+    activeObjectUrlRef.current = url;
+    await loadScene(url, options);
+    if (activeObjectUrlRef.current === url) {
+      URL.revokeObjectURL(url);
+      activeObjectUrlRef.current = null;
+    }
+  }, [loadScene, revokeActiveObjectUrl]);
 
   const handleLoadURL = useCallback((url: string, options: LoadOptions) => {
+    revokeActiveObjectUrl();
     loadScene(url, options);
-  }, [loadScene]);
+  }, [loadScene, revokeActiveObjectUrl]);
 
   const handleRemoveScene = useCallback(async () => {
     if (!viewerRef.current) return;
     await viewerRef.current.removeSplatScene(0);
     setHasScene(false);
     setSceneInfo(null);
+    setBenchmarkInfo(null);
     stopInfoLoop();
+    revokeActiveObjectUrl();
     setActiveScene('');
-  }, [stopInfoLoop]);
+  }, [stopInfoLoop, revokeActiveObjectUrl]);
 
   const handleTogglePointCloud = useCallback(() => {
     const next = !pointCloudMode;
@@ -296,7 +441,7 @@ export default function Home() {
     loadScene(scene.url, {
       progressiveLoad: true,
       splatAlphaRemovalThreshold: 1,
-      format: scene.format as any,
+      format: scene.format,
     });
     if (isMobile) {
       setMobileSheetState('idle');
@@ -391,6 +536,9 @@ export default function Home() {
         {/* Info Panel */}
         <InfoPanel info={sceneInfo} visible={infoVisible} onToggle={() => setInfoVisible((v) => !v)} />
 
+        {/* Benchmark Panel */}
+        <PerformanceBenchmarkPanel info={benchmarkInfo} visible={benchmarkVisible} />
+
         {/* Scale Control */}
         {hasScene && (
           <div className="absolute bottom-4 left-4 z-40 bg-black/70 backdrop-blur-md border border-white/10 rounded-full h-14 px-5 flex items-center gap-4">
@@ -441,6 +589,24 @@ export default function Home() {
           <Crosshair className="w-4 h-4" />
         </button>
 
+        {/* Benchmark */}
+        <button
+          className={`w-12 h-12 rounded-full border border-white/10 backdrop-blur-xl flex items-center justify-center hover:scale-105 active:scale-95 transition-all duration-150 ${
+            benchmarkVisible
+              ? 'text-sky-300 bg-sky-400/10 border-sky-400/30'
+              : 'text-white/50 bg-black/50 hover:bg-white/10 hover:text-white'
+          }`}
+          onClick={() => {
+            const next = !benchmarkVisible;
+            setBenchmarkVisible(next);
+            if (next) setInfoVisible(false);
+          }}
+          title="Benchmark 2026"
+          aria-pressed={benchmarkVisible}
+        >
+          <Activity className="w-4 h-4" />
+        </button>
+
         {/* Points / Splats */}
         <button
           className={`w-12 h-12 rounded-full border border-white/10 backdrop-blur-xl flex items-center justify-center hover:scale-105 active:scale-95 transition-all duration-150 ${
@@ -472,7 +638,11 @@ export default function Home() {
               ? 'text-blue-400 bg-blue-400/10 border-blue-400/30'
               : 'text-white/50 bg-black/50 hover:bg-white/10 hover:text-white'
           }`}
-          onClick={() => setInfoVisible((v) => !v)}
+          onClick={() => {
+            const next = !infoVisible;
+            setInfoVisible(next);
+            if (next) setBenchmarkVisible(false);
+          }}
           title="Información"
         >
           <Info className="w-4 h-4" />

@@ -13,6 +13,38 @@ A modern React + TypeScript wrapper for the [GaussianSplats3D](https://github.co
 - **Real-time info panel** — FPS, splat count, camera position, sort time, and more
 - **Multi-scene support** — Load multiple splat scenes simultaneously
 
+## 2026 Web 3D Performance Benchmark
+
+The in-app benchmark targets a realistic average 2026 mobile device: iPhone 13/14, Samsung Galaxy A54/A55, Pixel 7a, or Redmi Note 13 Pro with 6-8 GB RAM, WebGL 2.0, modern WebGPU availability, and a high native DPR.
+
+The viewer intentionally renders internally at a lower device pixel ratio to avoid saturating mobile GPUs. The HUD classifies the current scene with these working limits:
+
+| Metric | Target |
+|---|---|
+| FPS | 60 ideal, 30-45 acceptable, below 24 red line |
+| Estimated VRAM | 150-350 MB safe, above 600 MB risk, above 1 GB crash risk |
+| glTF triangles | Keep 500K-800K visible triangles as the practical mobile ceiling |
+| Gaussian splats active | 1-2M target range with culling |
+| Draw calls | Keep below 400-500 per frame |
+| Render DPR | Keep internal DPR around 1-1.5 on high-DPR mobile screens |
+
+## Runtime Performance Optimizations
+
+The viewer ships with mobile-first optimizations that can be tuned in `src/components/GaussianSplatViewer.tsx` and `src/lib/dynamicResolution.ts`:
+
+| Optimization | Mechanism |
+|---|---|
+| Dynamic Resolution Scaling (DRS) | Internal pixel ratio adapts in real time (0.55–1.2). It drops instantly while orbiting/panning and restores when still; sustained FPS below 24 scales down, above 55 scales up. |
+| Zero-copy worker sorting | `SharedArrayBuffer` sort buffers are used when the page is cross-origin isolated (COOP/COEP headers set in `vite.config.ts`), otherwise it falls back to copy-based sorting. |
+| Capped splat screen size | `maxScreenSpaceSplatSize` (default 512) limits overdraw from very large splats near the camera. |
+| SH degree 0 | Only base color is decoded (no degree-1/2/3 spherical harmonics), cutting shader work and memory bandwidth. |
+| Half-float covariances | Covariance data is stored as 16-bit floats on the GPU. |
+| No auto-rotate | Idle scenes stop re-sorting and re-rendering every frame. |
+
+Frustum culling, lazy/partial sorting, and Web-Worker sorting are provided by the underlying `GaussianSplats3D` library.
+
+For browser-side validation in Chrome, open DevTools, press `Esc`, open the Rendering drawer and enable `Frame Rendering Stats`. Watch FPS and GPU memory while orbiting the scene; memory that rises continuously after replacing scenes indicates missing disposal or retained resources.
+
 ## Demo Scenes Included
 
 | Scene | Source |
