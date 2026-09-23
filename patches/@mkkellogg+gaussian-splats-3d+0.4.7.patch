@@ -1,21 +1,59 @@
 diff --git a/node_modules/@mkkellogg/gaussian-splats-3d/build/gaussian-splats-3d.module.js b/node_modules/@mkkellogg/gaussian-splats-3d/build/gaussian-splats-3d.module.js
-index 5edf354..c796e63 100644
+index 5edf354..21e3050 100644
 --- a/node_modules/@mkkellogg/gaussian-splats-3d/build/gaussian-splats-3d.module.js
 +++ b/node_modules/@mkkellogg/gaussian-splats-3d/build/gaussian-splats-3d.module.js
-@@ -14236,9 +14236,13 @@ class Viewer {
-                         const cameraAngleYZDot = forward.dot(tempVectorYZ);
+@@ -14195,14 +14195,15 @@ class Viewer {
+             return tempMax.copy(node.max).sub(node.min).length();
+         };
  
++        // Game-engine-style frustum culling: test each node's bounding sphere
++        // against the camera's view frustum and skip it entirely when outside.
++        const frustum = new THREE.Frustum();
++        const frustumMatrix = new THREE.Matrix4();
++        const nodeSphere = new THREE.Sphere();
++
+         return function(gatherAllNodes = false) {
+ 
+-            this.getRenderDimensions(renderDimensions);
+-            const cameraFocalLength = (renderDimensions.y / 2.0) / Math.tan(this.camera.fov / 2.0 * THREE.MathUtils.DEG2RAD);
+-            const fovXOver2 = Math.atan(renderDimensions.x / 2.0 / cameraFocalLength);
+-            const fovYOver2 = Math.atan(renderDimensions.y / 2.0 / cameraFocalLength);
+-            const cosFovXOver2 = Math.cos(fovXOver2);
+-            const cosFovYOver2 = Math.cos(fovYOver2);
++            this.camera.updateProjectionMatrix();
+ 
+             const splatTree = this.splatMesh.getSplatTree();
+ 
+@@ -14220,6 +14221,8 @@ class Viewer {
+                         this.splatMesh.getSceneTransform(s, sceneTransform);
+                         modelView.multiply(sceneTransform);
+                     }
++                    frustumMatrix.multiplyMatrices(this.camera.projectionMatrix, modelView);
++                    frustum.setFromProjectionMatrix(frustumMatrix);
+                     const nodeCount = subTree.nodesWithIndexes.length;
+                     for (let i = 0; i < nodeCount; i++) {
+                         const node = subTree.nodesWithIndexes[i];
+@@ -14227,18 +14230,13 @@ class Viewer {
+                         tempVector.copy(node.center).applyMatrix4(modelView);
+ 
+                         const distanceToNode = tempVector.length();
+-                        tempVector.normalize();
+-
+-                        tempVectorYZ.copy(tempVector).setX(0).normalize();
+-                        tempVectorXZ.copy(tempVector).setY(0).normalize();
+-
+-                        const cameraAngleXZDot = forward.dot(tempVectorXZ);
+-                        const cameraAngleYZDot = forward.dot(tempVectorYZ);
+ 
++                        // Cull the node if its bounding sphere lies entirely
++                        // outside the view frustum (behind the camera, off to
++                        // the sides, or beyond the near/far planes).
                          const ns = nodeSize(node);
 -                        const outOfFovY = cameraAngleYZDot < (cosFovYOver2 - .6);
 -                        const outOfFovX = cameraAngleXZDot < (cosFovXOver2 - .6);
 -                        if (!gatherAllNodes && ((outOfFovX || outOfFovY) && distanceToNode > ns)) {
-+                        const outOfFovY = cameraAngleYZDot < (cosFovYOver2 - 0);
-+                        const outOfFovX = cameraAngleXZDot < (cosFovXOver2 - 0);
-+                        // Nodes behind the camera are culled unconditionally; for
-+                        // nodes that are merely off-axis in front, keep a size
-+                        // guard so large near nodes don't pop at screen edges.
-+                        const behindCamera = cameraAngleXZDot < 0;
-+                        if (!gatherAllNodes && ((outOfFovX || outOfFovY) && (behindCamera || distanceToNode > ns))) {
++                        nodeSphere.set(node.center, ns * 0.5);
++                        if (!gatherAllNodes && !frustum.intersectsSphere(nodeSphere)) {
                              continue;
                          }
                          splatRenderCount += node.data.indexes.length;
