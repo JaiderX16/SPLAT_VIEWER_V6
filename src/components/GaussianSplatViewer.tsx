@@ -3,11 +3,6 @@ import * as THREE from 'three';
 import * as GaussianSplats3D from '@mkkellogg/gaussian-splats-3d';
 import { EditorOverlay } from '@/lib/editorOverlay';
 
-// True when SharedArrayBuffer is available (page is cross-origin isolated).
-function isSharedArrayBufferAvailable(): boolean {
-  return typeof SharedArrayBuffer !== 'undefined' && typeof Atomics !== 'undefined';
-}
-
 // ─── Camera settings (replicados del proyecto de referencia) ─────────────────
 const CAMERA = {
   UP: [0, -1, 0] as [number, number, number],
@@ -141,10 +136,8 @@ const GaussianSplatViewer = forwardRef<GaussianSplatViewerHandle, GaussianSplatV
         useBuiltInControls: true,
         sceneRevealMode: GaussianSplats3D.SceneRevealMode.Instant,
         gpuAcceleratedSort: false,
-        // Zero-copy sort buffer when the page is cross-origin isolated; the
-        // guard degrades gracefully to copy-based worker sorting otherwise.
-        // This only speeds up sorting and has no effect on visual quality.
-        sharedMemoryForWorkers: isSharedArrayBufferAvailable(),
+        // Copy-based worker sorting (matches the fast reference build).
+        sharedMemoryForWorkers: false,
         integerBasedSort: true,
         halfPrecisionCovariancesOnGPU: false,
         antialiased: false,

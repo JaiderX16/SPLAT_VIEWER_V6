@@ -14241,9 +14241,12 @@ class Viewer {
 
                         // Cull the node if its bounding sphere lies entirely
                         // outside the view frustum (behind the camera, off to
-                        // the sides, or beyond the near/far planes).
+                        // the sides, or beyond the near/far planes). A small
+                        // extra buffer keeps a reserve of splats just outside
+                        // the frustum so screen edges don't flicker while the
+                        // camera moves fast.
                         const ns = nodeSize(node);
-                        nodeSphere.set(node.center, ns * 0.5);
+                        nodeSphere.set(node.center, ns * 0.5 + 0.5);
                         if (!gatherAllNodes && !frustum.intersectsSphere(nodeSphere)) {
                             continue;
                         }
