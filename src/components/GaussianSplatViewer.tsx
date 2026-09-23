@@ -15,10 +15,10 @@ const CAMERA = {
   LOOK_AT: [0, 0, 0] as [number, number, number],
   MIN_DISTANCE: 0.5,
   MAX_DISTANCE: 20,
-  // Near-full free orbit (SuperSplat-style), with a tiny margin to avoid the
-  // gimbal-lock dead zone directly above/below the target.
-  MIN_POLAR_ANGLE: Math.PI * 0.02,
-  MAX_POLAR_ANGLE: Math.PI * 0.98,
+  // Keep the camera from going too far above/below the model (which put it at
+  // "ground level" and made navigation disorienting).
+  MIN_POLAR_ANGLE: Math.PI * 0.10,
+  MAX_POLAR_ANGLE: Math.PI * 0.82,
 };
 
 const VIEW_DIRECTIONS: Record<Exclude<CameraView, 'reset'>, [number, number, number]> = {

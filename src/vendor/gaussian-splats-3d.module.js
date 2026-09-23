@@ -14124,19 +14124,11 @@ class Viewer {
 
             gpuAcceleratedSortPromise.then(() => {
                 if (queuedSorts.length === 0) {
-                    if (this.splatMesh.dynamicMode || shouldSortAll) {
-                        queuedSorts.push(this.splatRenderCount);
-                    } else {
-                            for (let partialSort of partialSorts) {
-                            if (angleDiff < partialSort.angleThreshold) {
-                                for (let sortFraction of partialSort.sortFractions) {
-                                    queuedSorts.push(Math.floor(this.splatRenderCount * sortFraction));
-                                }
-                                break;
-                            }
-                        }
-                        queuedSorts.push(this.splatRenderCount);
-                    }
+                    // Always sort the full visible set. Partial sorts caused
+                    // progressive "pop-in" (only a few blobs visible) during
+                    // fast camera movement; a full sort keeps the scene
+                    // complete every frame.
+                    queuedSorts.push(this.splatRenderCount);
                 }
                 let sortCount = Math.min(queuedSorts.shift(), this.splatRenderCount);
                 this.splatSortCount = sortCount;
