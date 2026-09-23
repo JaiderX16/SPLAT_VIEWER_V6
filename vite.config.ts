@@ -28,6 +28,12 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      // Use our vendored, already-patched copy of GaussianSplats3D instead of the
+      // npm package, so no postinstall patch step is needed at deploy time.
+      "@mkkellogg/gaussian-splats-3d": path.resolve(
+        __dirname,
+        "./src/vendor/gaussian-splats-3d.module.js",
+      ),
     },
   },
 });

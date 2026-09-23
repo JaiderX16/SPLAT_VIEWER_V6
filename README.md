@@ -38,7 +38,7 @@ The viewer ships with mobile-first optimizations that preserve full visual quali
 
 | Optimization | Mechanism |
 |---|---|
-| Tightened frustum culling | Each splat-tree node's bounding sphere is tested against the camera frustum (6 planes) and skipped entirely when outside — the same approach game engines use. Applied via `patch-package` (`patches/@mkkellogg+gaussian-splats-3d+0.4.7.patch`). |
+| Tightened frustum culling | Each splat-tree node's bounding sphere is tested against the camera frustum (6 planes) and skipped entirely when outside — the same approach game engines use. The library is vendored with these changes in `src/vendor/gaussian-splats-3d.module.js`. |
 | Zero-copy worker sorting | `SharedArrayBuffer` sort buffers are used when the page is cross-origin isolated (COOP/COEP headers set in `vite.config.ts`), otherwise it falls back to copy-based sorting. No visual impact. |
 | SH degree selector | Base color (degree 0) by default; selectable up to degree 3 from the advanced controls. |
 
