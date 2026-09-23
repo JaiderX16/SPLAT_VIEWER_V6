@@ -1,10 +1,11 @@
 import { useRef, useState, useCallback, useEffect } from 'react';
 import * as GaussianSplats3D from '@mkkellogg/gaussian-splats-3d';
-import GaussianSplatViewer, { type GaussianSplatViewerHandle } from '@/components/GaussianSplatViewer';
+import GaussianSplatViewer, { type GaussianSplatViewerHandle, type CameraView } from '@/components/GaussianSplatViewer';
 import ProgressiveLoader, { type ProgressiveLoadState } from '@/components/ProgressiveLoader';
 import SceneUploader, { type LoadOptions } from '@/components/SceneUploader';
 import InfoPanel from '@/components/InfoPanel';
 import PerformanceBenchmarkPanel, { type PerformanceBenchmarkInfo } from '@/components/PerformanceBenchmarkPanel';
+import AdvancedControlsPanel from '@/components/AdvancedControlsPanel';
 import { estimateGaussianSplatVramMB, scoreBenchmark } from '@/lib/performanceBenchmark';
 // @ts-expect-error Sidebar is authored in JS in this project.
 import Sidebar from '@/components/Sidebar';
@@ -28,6 +29,7 @@ import {
   Crosshair,
   ChevronRight,
   Activity,
+  SlidersHorizontal,
 } from 'lucide-react';
 
 const DEMO_SCENES: Array<{ name: string; url: string; format: LoadOptions['format'] }> = [
@@ -187,6 +189,7 @@ export default function Home() {
   const [activeScene, setActiveScene] = useState<string>('');
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [mobileSheetState, setMobileSheetState] = useState('idle');
+  const [advancedOpen, setAdvancedOpen] = useState(false);
 
   const isMobile = useIsMobile();
 
@@ -448,6 +451,30 @@ export default function Home() {
     }
   }, [loadScene, isMobile]);
 
+  // ─── Keyboard shortcuts for camera views (SuperSplat-style) ────────────────
+  useEffect(() => {
+    const viewByKey: Record<string, CameraView> = {
+      '1': 'front',
+      '2': 'back',
+      '3': 'left',
+      '4': 'right',
+      '5': 'top',
+      '6': 'bottom',
+      '0': 'reset',
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const view = viewByKey[e.key];
+      if (view) {
+        viewerRef.current?.setCameraView(view);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
   // ─── Download progress line (minimalista, estilo referencia) ────────────────
   const downloading = progressiveState.status === 'downloading' || progressiveState.status === 'processing';
 
@@ -647,7 +674,28 @@ export default function Home() {
         >
           <Info className="w-4 h-4" />
         </button>
+
+        {/* Advanced controls */}
+        <button
+          className={`w-12 h-12 rounded-full border border-white/10 backdrop-blur-xl flex items-center justify-center hover:scale-105 active:scale-95 transition-all duration-150 ${
+            advancedOpen
+              ? 'text-violet-300 bg-violet-400/10 border-violet-400/30'
+              : 'text-white/50 bg-black/50 hover:bg-white/10 hover:text-white'
+          }`}
+          onClick={() => setAdvancedOpen((v) => !v)}
+          title="Controles avanzados"
+          aria-pressed={advancedOpen}
+        >
+          <SlidersHorizontal className="w-4 h-4" />
+        </button>
       </div>
+
+      {/* ── Advanced controls panel ── */}
+      <AdvancedControlsPanel
+        viewerRef={viewerRef}
+        visible={advancedOpen}
+        onClose={() => setAdvancedOpen(false)}
+      />
     </div>
   );
 }

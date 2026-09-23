@@ -1,4 +1,5 @@
 import { useRef, useEffect, forwardRef, useImperativeHandle } from 'react';
+import * as THREE from 'three';
 import * as GaussianSplats3D from '@mkkellogg/gaussian-splats-3d';
 import {
   DynamicResolutionController,
@@ -15,8 +16,28 @@ const CAMERA = {
   LOOK_AT: [0, 0, 0] as [number, number, number],
   MIN_DISTANCE: 0.5,
   MAX_DISTANCE: 20,
-  MIN_POLAR_ANGLE: Math.PI * 0.10,
-  MAX_POLAR_ANGLE: Math.PI * 0.82,
+  // Near-full free orbit (SuperSplat-style), with a tiny margin to avoid the
+  // gimbal-lock dead zone directly above/below the target.
+  MIN_POLAR_ANGLE: Math.PI * 0.02,
+  MAX_POLAR_ANGLE: Math.PI * 0.98,
+};
+
+const VIEW_DIRECTIONS: Record<Exclude<CameraView, 'reset'>, [number, number, number]> = {
+  front: [0, 0, 1],
+  back: [0, 0, -1],
+  left: [-1, 0, 0],
+  right: [1, 0, 0],
+  top: [0, 1, 0],
+  bottom: [0, -1, 0],
+};
+
+const VIEW_UPS: Record<Exclude<CameraView, 'reset'>, [number, number, number]> = {
+  front: [0, -1, 0],
+  back: [0, -1, 0],
+  left: [0, -1, 0],
+  right: [0, -1, 0],
+  top: [0, 0, -1],
+  bottom: [0, 0, 1],
 };
 
 const ROTATION = {
@@ -32,11 +53,14 @@ const ANIMATION = {
   INTRO_ZOOM_DURATION: 4000,
 };
 
-// Cap the maximum screen-space size of a single splat. The library default is
-// 1024 (effectively "no cap"), which lets very large splats near the camera
-// cover huge screen areas and blow up overdraw/fill-rate. Capping this is one
-// of the cheapest mobile wins with minimal visual cost.
-const MAX_SCREEN_SPACE_SPLAT_SIZE = 512;
+// Maximum screen-space size of a single splat. We use the library default
+// (1024, i.e. no effective cap) to avoid degrading large near-camera splats.
+// The fill-rate win comes from resolution control (ignoreDevicePixelRatio +
+// the gentle DRS safety net), not from capping splat size.
+const MAX_SCREEN_SPACE_SPLAT_SIZE = 1024;
+
+/** Named camera viewpoints, mirroring SuperSplat-style view presets. */
+export type CameraView = 'front' | 'back' | 'left' | 'right' | 'top' | 'bottom' | 'reset';
 
 export interface GaussianSplatViewerHandle {
   viewer: GaussianSplats3D.Viewer | null;
@@ -55,6 +79,14 @@ export interface GaussianSplatViewerHandle {
   resetCamera: () => void;
   getDynamicResolutionScale: () => number;
   resetDynamicResolution: () => void;
+  setOrthographicMode: (enabled: boolean) => void;
+  getOrthographicMode: () => boolean;
+  setFov: (fov: number) => void;
+  getFov: () => number;
+  setBackgroundColor: (color: string) => void;
+  setGridVisible: (visible: boolean) => void;
+  setAxesVisible: (visible: boolean) => void;
+  setCameraView: (view: CameraView) => void;
 }
 
 interface GaussianSplatViewerProps {
@@ -90,6 +122,8 @@ const GaussianSplatViewer = forwardRef<GaussianSplatViewerHandle, GaussianSplatV
     const containerRef = useRef<HTMLDivElement>(null);
     const viewerRef = useRef<GaussianSplats3D.Viewer | null>(null);
     const drsRef = useRef<DynamicResolutionController | null>(null);
+    const gridHelperRef = useRef<THREE.GridHelper | null>(null);
+    const axesHelperRef = useRef<THREE.AxesHelper | null>(null);
     const isRunningRef = useRef(false);
     const onProgressRef = useRef(onProgress);
     const onLoadStartRef = useRef(onLoadStart);
@@ -115,7 +149,7 @@ const GaussianSplatViewer = forwardRef<GaussianSplatViewerHandle, GaussianSplatV
         selfDrivenMode: true,
         useBuiltInControls: true,
         // Base internal pixel ratio is 1 (ignoring the native 2.5–3x DPR); the
-        // dynamic-resolution controller then modulates it between ~0.55 and 1.2.
+        // dynamic-resolution controller then gently modulates it (0.85–1.0).
         ignoreDevicePixelRatio: true,
         sceneRevealMode: GaussianSplats3D.SceneRevealMode.Instant,
         gpuAcceleratedSort: false,
@@ -193,6 +227,17 @@ const GaussianSplatViewer = forwardRef<GaussianSplatViewerHandle, GaussianSplatV
         }
         drsRef.current?.stop();
         drsRef.current = null;
+        const disposeHelper = (obj: THREE.Object3D | null) => {
+          if (!obj) return;
+          const anyObj = obj as any;
+          anyObj.geometry?.dispose?.();
+          const materials = Array.isArray(anyObj.material) ? anyObj.material : [anyObj.material];
+          materials.forEach((m: any) => m?.dispose?.());
+        };
+        disposeHelper(gridHelperRef.current);
+        disposeHelper(axesHelperRef.current);
+        gridHelperRef.current = null;
+        axesHelperRef.current = null;
         // dispose() is async – its .finally() may try removeChild on a node
         // that React already unmounted (StrictMode double-invoke).
         viewer.dispose().catch(() => {});
@@ -354,6 +399,86 @@ const GaussianSplatViewer = forwardRef<GaussianSplatViewerHandle, GaussianSplatV
       },
       getDynamicResolutionScale: () => drsRef.current?.getScale() ?? 1,
       resetDynamicResolution: () => drsRef.current?.reset(),
+      setOrthographicMode: (enabled: boolean) => {
+        const v = viewerRef.current as any;
+        if (!v) return;
+        v.setOrthographicMode?.(enabled);
+        v.forceRenderNextFrame?.();
+      },
+      getOrthographicMode: () => {
+        const v = viewerRef.current as any;
+        return v?.camera?.isOrthographicCamera ?? false;
+      },
+      setFov: (fov: number) => {
+        const v = viewerRef.current as any;
+        const cam = v?.perspectiveCamera;
+        if (!cam) return;
+        cam.fov = THREE.MathUtils.clamp(fov, 10, 120);
+        cam.updateProjectionMatrix();
+        v.forceRenderNextFrame?.();
+      },
+      getFov: () => {
+        const v = viewerRef.current as any;
+        return v?.perspectiveCamera?.fov ?? 50;
+      },
+      setBackgroundColor: (color: string) => {
+        const v = viewerRef.current as any;
+        if (v?.renderer) {
+          v.renderer.setClearColor(new THREE.Color(color), 1);
+          v.forceRenderNextFrame?.();
+        }
+      },
+      setGridVisible: (visible: boolean) => {
+        const v = viewerRef.current as any;
+        if (!v?.threeScene) return;
+        if (!gridHelperRef.current) {
+          gridHelperRef.current = new THREE.GridHelper(10, 20, 0x888888, 0x2a2a2a);
+          gridHelperRef.current.position.y = 0;
+          v.threeScene.add(gridHelperRef.current);
+        }
+        gridHelperRef.current.visible = visible;
+        v.forceRenderNextFrame?.();
+      },
+      setAxesVisible: (visible: boolean) => {
+        const v = viewerRef.current as any;
+        if (!v?.threeScene) return;
+        if (!axesHelperRef.current) {
+          axesHelperRef.current = new THREE.AxesHelper(1);
+          v.threeScene.add(axesHelperRef.current);
+        }
+        axesHelperRef.current.visible = visible;
+        v.forceRenderNextFrame?.();
+      },
+      setCameraView: (view: CameraView) => {
+        const v = viewerRef.current as any;
+        if (!v?.camera || !v?.controls) return;
+        const controls = v.controls;
+        const target = controls.target;
+
+        if (view === 'reset') {
+          target.set(0, 0, 0);
+          v.camera.position.set(
+            CAMERA.INITIAL_POSITION[0],
+            CAMERA.INITIAL_POSITION[1],
+            CAMERA.INITIAL_POSITION[2],
+          );
+          v.camera.up.set(CAMERA.UP[0], CAMERA.UP[1], CAMERA.UP[2]);
+        } else {
+          const distance = Math.max(v.camera.position.distanceTo(target), 2.5);
+          const dir = VIEW_DIRECTIONS[view];
+          const up = VIEW_UPS[view];
+          v.camera.position.set(
+            target.x + dir[0] * distance,
+            target.y + dir[1] * distance,
+            target.z + dir[2] * distance,
+          );
+          v.camera.up.set(up[0], up[1], up[2]);
+        }
+
+        v.camera.lookAt(target);
+        controls.update();
+        v.forceRenderNextFrame?.();
+      },
     }), []);
 
     return (

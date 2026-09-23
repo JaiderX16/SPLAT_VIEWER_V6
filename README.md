@@ -12,6 +12,7 @@ A modern React + TypeScript wrapper for the [GaussianSplats3D](https://github.co
 - **Camera focus** — Auto-center the camera on the loaded scene
 - **Real-time info panel** — FPS, splat count, camera position, sort time, and more
 - **Multi-scene support** — Load multiple splat scenes simultaneously
+- **Advanced controls** — Camera view presets (front/back/top/…), orthographic/perspective toggle, FOV, spherical-harmonics quality, background color, grid & axes (SuperSplat-style)
 
 ## 2026 Web 3D Performance Benchmark
 
@@ -34,10 +35,9 @@ The viewer ships with mobile-first optimizations that can be tuned in `src/compo
 
 | Optimization | Mechanism |
 |---|---|
-| Dynamic Resolution Scaling (DRS) | Internal pixel ratio adapts in real time (0.55–1.2). It drops instantly while orbiting/panning and restores when still; sustained FPS below 24 scales down, above 55 scales up. |
+| Dynamic Resolution Scaling (DRS) | Quality-first: internal pixel ratio adapts gently (0.85–1.0) and only after *sustained* low FPS. It never changes resolution while orbiting, so there's no blur-on-move. |
 | Zero-copy worker sorting | `SharedArrayBuffer` sort buffers are used when the page is cross-origin isolated (COOP/COEP headers set in `vite.config.ts`), otherwise it falls back to copy-based sorting. |
-| Capped splat screen size | `maxScreenSpaceSplatSize` (default 512) limits overdraw from very large splats near the camera. |
-| SH degree 0 | Only base color is decoded (no degree-1/2/3 spherical harmonics), cutting shader work and memory bandwidth. |
+| SH degree 0 | Only base color is decoded by default (selectable up to degree 3 from the advanced controls), cutting shader work and memory bandwidth. |
 | Half-float covariances | Covariance data is stored as 16-bit floats on the GPU. |
 | No auto-rotate | Idle scenes stop re-sorting and re-rendering every frame. |
 

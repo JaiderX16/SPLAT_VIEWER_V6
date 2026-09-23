@@ -1,26 +1,20 @@
 /**
  * Dynamic Resolution Scaling (DRS) for the Gaussian Splats viewer.
  *
- * Mid/low-end mobile GPUs are almost always *fill-rate* bound: their screens
- * have very high native pixel density (devicePixelRatio 2.5–3.0) and rendering
- * the full native resolution saturates the fragment pipeline. Rendering the
- * scene internally at a lower resolution and letting the compositor upscale is
- * the single most effective win on those devices.
+ * Quality-first design. The dominant fill-rate win on high-DPR phones is already
+ * `ignoreDevicePixelRatio` (render at 1x instead of the native 2.5–3x). This
+ * controller is only a gentle safety net for the rare case where even 1x is too
+ * heavy for the GPU:
  *
- * This controller adapts the internal pixel ratio in real time:
- *
- *  1. Interactivity LOD — the instant the user starts orbiting/panning, the
- *     internal resolution is dropped so frames stay cheap exactly where FPS
- *     would otherwise tank; it is restored when interaction ends (crisp while
- *     still, fast while moving).
- *
- *  2. FPS-driven adaptation — while idle, sustained FPS below `fpsLow` scales
- *     the resolution down (×`stepDownFactor` per step), and sustained FPS above
- *     `fpsHigh` scales it back up gradually (×`stepUpFactor`).
+ *  - It never changes resolution while the user is orbiting/panning, so there is
+ *    no visible "blur for a second" when you grab the scene.
+ *  - Its floor (0.85) is high enough that the scene never looks noticeably soft.
+ *  - It only steps down after a *sustained* period of very low FPS, and steps
+ *    back up gradually once FPS recovers.
  *
  * The renderer's internal pixel ratio and the viewer's `devicePixelRatio` are
- * kept in sync, so focal-length math in the splat shader stays correct and the
- * splats keep their apparent on-screen size while the drawing buffer shrinks.
+ * kept in sync so the splat shader's focal-length math stays correct while the
+ * drawing buffer shrinks/grows.
  */
 
 export interface DynamicResolutionOptions {
@@ -30,8 +24,6 @@ export interface DynamicResolutionOptions {
   maxScale?: number;
   /** Scale used right after a scene loads or the controller resets. */
   initialScale?: number;
-  /** Immediate scale multiplier applied when interaction starts. */
-  interactionDropFactor?: number;
   /** Scale multiplier applied when FPS stays below `fpsLow`. */
   stepDownFactor?: number;
   /** Scale multiplier applied when FPS stays above `fpsHigh`. */
@@ -67,17 +59,16 @@ export interface DynamicResolutionHost {
 }
 
 const DEFAULT_OPTIONS: Required<DynamicResolutionOptions> = {
-  minScale: 0.55,
-  maxScale: 1.2,
+  minScale: 0.85,
+  maxScale: 1.0,
   initialScale: 1.0,
-  interactionDropFactor: 0.75,
-  stepDownFactor: 0.75,
-  stepUpFactor: 1.1,
-  fpsLow: 24,
-  fpsHigh: 55,
-  sampleIntervalMs: 300,
-  lowSustainMs: 1000,
-  highSustainMs: 1500,
+  stepDownFactor: 0.9,
+  stepUpFactor: 1.05,
+  fpsLow: 20,
+  fpsHigh: 50,
+  sampleIntervalMs: 500,
+  lowSustainMs: 2000,
+  highSustainMs: 2000,
 };
 
 function clamp(value: number, min: number, max: number): number {
@@ -88,7 +79,6 @@ export class DynamicResolutionController {
   private readonly host: DynamicResolutionHost;
   private readonly options: Required<DynamicResolutionOptions>;
   private scale: number;
-  private idleScale: number;
   private interacting = false;
   private started = false;
   private lowTimer = 0;
@@ -100,7 +90,6 @@ export class DynamicResolutionController {
     this.host = host;
     this.options = { ...DEFAULT_OPTIONS, ...options };
     this.scale = clamp(this.options.initialScale, this.options.minScale, this.options.maxScale);
-    this.idleScale = this.scale;
   }
 
   getScale(): number {
@@ -143,31 +132,22 @@ export class DynamicResolutionController {
     this.interacting = false;
     this.lowTimer = 0;
     this.highTimer = 0;
-    this.idleScale = clamp(this.options.initialScale, this.options.minScale, this.options.maxScale);
-    this.apply(this.idleScale);
+    this.apply(clamp(this.options.initialScale, this.options.minScale, this.options.maxScale));
   }
 
   private readonly handleStart = () => {
-    if (this.interacting) return;
+    // No resolution change on interaction: a drop here is what caused the
+    // visible "blur for a second" while grabbing the scene. We only pause the
+    // FPS-driven loop so it doesn't adapt mid-gesture.
     this.interacting = true;
     this.lowTimer = 0;
     this.highTimer = 0;
-    this.idleScale = this.scale;
-
-    const target = clamp(
-      this.scale * this.options.interactionDropFactor,
-      this.options.minScale,
-      this.options.maxScale,
-    );
-    if (target < this.scale) this.apply(target);
   };
 
   private readonly handleEnd = () => {
-    if (!this.interacting) return;
     this.interacting = false;
     this.lowTimer = 0;
     this.highTimer = 0;
-    this.apply(this.idleScale);
   };
 
   private readonly tick = () => {
@@ -175,8 +155,7 @@ export class DynamicResolutionController {
     const dt = Math.min(now - this.lastTick, 2000);
     this.lastTick = now;
 
-    // While the user is interacting, the interaction drop already keeps frames
-    // cheap; let the FPS loop resume once they stop moving.
+    // Don't adjust resolution while the user is interacting.
     if (this.interacting) return;
 
     const fps = this.host.currentFPS;
