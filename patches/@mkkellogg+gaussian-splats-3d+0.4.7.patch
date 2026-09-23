@@ -1,15 +1,21 @@
 diff --git a/node_modules/@mkkellogg/gaussian-splats-3d/build/gaussian-splats-3d.module.js b/node_modules/@mkkellogg/gaussian-splats-3d/build/gaussian-splats-3d.module.js
-index 5edf354..f7520e3 100644
+index 5edf354..c796e63 100644
 --- a/node_modules/@mkkellogg/gaussian-splats-3d/build/gaussian-splats-3d.module.js
 +++ b/node_modules/@mkkellogg/gaussian-splats-3d/build/gaussian-splats-3d.module.js
-@@ -14236,8 +14236,8 @@ class Viewer {
+@@ -14236,9 +14236,13 @@ class Viewer {
                          const cameraAngleYZDot = forward.dot(tempVectorYZ);
  
                          const ns = nodeSize(node);
 -                        const outOfFovY = cameraAngleYZDot < (cosFovYOver2 - .6);
 -                        const outOfFovX = cameraAngleXZDot < (cosFovXOver2 - .6);
+-                        if (!gatherAllNodes && ((outOfFovX || outOfFovY) && distanceToNode > ns)) {
 +                        const outOfFovY = cameraAngleYZDot < (cosFovYOver2 - 0);
 +                        const outOfFovX = cameraAngleXZDot < (cosFovXOver2 - 0);
-                         if (!gatherAllNodes && ((outOfFovX || outOfFovY) && distanceToNode > ns)) {
++                        // Nodes behind the camera are culled unconditionally; for
++                        // nodes that are merely off-axis in front, keep a size
++                        // guard so large near nodes don't pop at screen edges.
++                        const behindCamera = cameraAngleXZDot < 0;
++                        if (!gatherAllNodes && ((outOfFovX || outOfFovY) && (behindCamera || distanceToNode > ns))) {
                              continue;
                          }
+                         splatRenderCount += node.data.indexes.length;
