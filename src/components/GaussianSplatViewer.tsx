@@ -1,11 +1,11 @@
 import { useRef, useEffect, forwardRef, useImperativeHandle } from 'react';
 import * as THREE from 'three';
 import * as GaussianSplats3D from '@mkkellogg/gaussian-splats-3d';
-import {
-  DynamicResolutionController,
-  isSharedArrayBufferAvailable,
-  type DynamicResolutionHost,
-} from '@/lib/dynamicResolution';
+
+// True when SharedArrayBuffer is available (page is cross-origin isolated).
+function isSharedArrayBufferAvailable(): boolean {
+  return typeof SharedArrayBuffer !== 'undefined' && typeof Atomics !== 'undefined';
+}
 
 // ─── Camera settings (replicados del proyecto de referencia) ─────────────────
 const CAMERA = {
@@ -53,12 +53,6 @@ const ANIMATION = {
   INTRO_ZOOM_DURATION: 4000,
 };
 
-// Maximum screen-space size of a single splat. We use the library default
-// (1024, i.e. no effective cap) to avoid degrading large near-camera splats.
-// The fill-rate win comes from resolution control (ignoreDevicePixelRatio +
-// the gentle DRS safety net), not from capping splat size.
-const MAX_SCREEN_SPACE_SPLAT_SIZE = 1024;
-
 /** Named camera viewpoints, mirroring SuperSplat-style view presets. */
 export type CameraView = 'front' | 'back' | 'left' | 'right' | 'top' | 'bottom' | 'reset';
 
@@ -77,8 +71,6 @@ export interface GaussianSplatViewerHandle {
   getSplatScene: (index: number) => any;
   getSceneCount: () => number;
   resetCamera: () => void;
-  getDynamicResolutionScale: () => number;
-  resetDynamicResolution: () => void;
   setOrthographicMode: (enabled: boolean) => void;
   getOrthographicMode: () => boolean;
   setFov: (fov: number) => void;
@@ -100,8 +92,6 @@ interface GaussianSplatViewerProps {
   initialCameraLookAt?: [number, number, number];
   logLevel?: GaussianSplats3D.LogLevel;
   sphericalHarmonicsDegree?: number;
-  maxScreenSpaceSplatSize?: number;
-  dynamicResolution?: boolean;
 }
 
 const GaussianSplatViewer = forwardRef<GaussianSplatViewerHandle, GaussianSplatViewerProps>(
@@ -116,12 +106,9 @@ const GaussianSplatViewer = forwardRef<GaussianSplatViewerHandle, GaussianSplatV
     initialCameraLookAt = CAMERA.LOOK_AT,
     logLevel = GaussianSplats3D.LogLevel.None,
     sphericalHarmonicsDegree = 0,
-    maxScreenSpaceSplatSize = MAX_SCREEN_SPACE_SPLAT_SIZE,
-    dynamicResolution = true,
   }, ref) => {
     const containerRef = useRef<HTMLDivElement>(null);
     const viewerRef = useRef<GaussianSplats3D.Viewer | null>(null);
-    const drsRef = useRef<DynamicResolutionController | null>(null);
     const gridHelperRef = useRef<THREE.GridHelper | null>(null);
     const axesHelperRef = useRef<THREE.AxesHelper | null>(null);
     const isRunningRef = useRef(false);
@@ -148,25 +135,22 @@ const GaussianSplatViewer = forwardRef<GaussianSplatViewerHandle, GaussianSplatV
         initialCameraLookAt,
         selfDrivenMode: true,
         useBuiltInControls: true,
-        // Base internal pixel ratio is 1 (ignoring the native 2.5–3x DPR); the
-        // dynamic-resolution controller then gently modulates it (0.85–1.0).
-        ignoreDevicePixelRatio: true,
         sceneRevealMode: GaussianSplats3D.SceneRevealMode.Instant,
         gpuAcceleratedSort: false,
         // Zero-copy sort buffer when the page is cross-origin isolated; the
         // guard degrades gracefully to copy-based worker sorting otherwise.
+        // This only speeds up sorting and has no effect on visual quality.
         sharedMemoryForWorkers: isSharedArrayBufferAvailable(),
         integerBasedSort: true,
-        halfPrecisionCovariancesOnGPU: true,
+        halfPrecisionCovariancesOnGPU: false,
         antialiased: false,
-        maxScreenSpaceSplatSize,
         splatRenderMode: GaussianSplats3D.SplatRenderMode.ThreeD,
         renderMode: GaussianSplats3D.RenderMode.Always,
         logLevel,
         sphericalHarmonicsDegree,
         enableOptionalEffects: false,
-        inMemoryCompressionLevel: 1,
-        freeIntermediateSplatData: true,
+        inMemoryCompressionLevel: 0,
+        freeIntermediateSplatData: false,
       });
 
       viewerRef.current = viewer;
@@ -180,39 +164,8 @@ const GaussianSplatViewer = forwardRef<GaussianSplatViewerHandle, GaussianSplatV
         c.maxPolarAngle = CAMERA.MAX_POLAR_ANGLE;
         c.minDistance = CAMERA.DIST_FAR;
         c.maxDistance = CAMERA.DIST_FAR;
-        // Auto-rotation keeps the camera in constant motion, which forces a
-        // depth re-sort and a full re-render every frame even when the user is
-        // idle — the exact opposite of the "still = crisp, moving = fast" model.
-        // Disabled by default; re-enable with `c.autoRotate = true` if desired.
-        c.autoRotate = false;
+        c.autoRotate = true;
         c.autoRotateSpeed = ROTATION.SPEED_FAST;
-      }
-
-      // ── Dynamic Resolution Scaling ─────────────────────────────────────────
-      if (dynamicResolution) {
-        const raw = viewer as any;
-        const drsHost: DynamicResolutionHost = {
-          rootElement: raw.rootElement ?? containerRef.current,
-          renderer: raw.renderer ?? null,
-          // Proxy reads/writes through to the viewer so the library's focal
-          // length math (which reads viewer.devicePixelRatio) stays correct.
-          get devicePixelRatio() {
-            return raw.devicePixelRatio ?? 1;
-          },
-          set devicePixelRatio(value: number) {
-            raw.devicePixelRatio = value;
-          },
-          get currentFPS() {
-            return raw.currentFPS ?? null;
-          },
-          get controls() {
-            return raw.controls ?? null;
-          },
-          forceRenderNextFrame: () => raw.forceRenderNextFrame?.(),
-        };
-        const drs = new DynamicResolutionController(drsHost);
-        drsRef.current = drs;
-        drs.start();
       }
 
       if (!isRunningRef.current) {
@@ -225,8 +178,6 @@ const GaussianSplatViewer = forwardRef<GaussianSplatViewerHandle, GaussianSplatV
           cancelAnimationFrame(introRafRef.current);
           introRafRef.current = null;
         }
-        drsRef.current?.stop();
-        drsRef.current = null;
         const disposeHelper = (obj: THREE.Object3D | null) => {
           if (!obj) return;
           const anyObj = obj as any;
@@ -294,9 +245,6 @@ const GaussianSplatViewer = forwardRef<GaussianSplatViewerHandle, GaussianSplatV
             isRunningRef.current = true;
           }
 
-          // A freshly loaded scene should start at its crisp base resolution.
-          drsRef.current?.reset();
-
           runIntroZoom(viewer);
           onLoadCompleteRef.current?.();
         } catch (e) {
@@ -326,8 +274,6 @@ const GaussianSplatViewer = forwardRef<GaussianSplatViewerHandle, GaussianSplatV
             viewer.start();
             isRunningRef.current = true;
           }
-
-          drsRef.current?.reset();
 
           runIntroZoom(viewer);
           onLoadCompleteRef.current?.();
@@ -397,8 +343,6 @@ const GaussianSplatViewer = forwardRef<GaussianSplatViewerHandle, GaussianSplatV
         v.controls.update();
         v.forceRenderNextFrame?.();
       },
-      getDynamicResolutionScale: () => drsRef.current?.getScale() ?? 1,
-      resetDynamicResolution: () => drsRef.current?.reset(),
       setOrthographicMode: (enabled: boolean) => {
         const v = viewerRef.current as any;
         if (!v) return;

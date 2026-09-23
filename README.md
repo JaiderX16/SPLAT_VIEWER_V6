@@ -31,18 +31,15 @@ The viewer intentionally renders internally at a lower device pixel ratio to avo
 
 ## Runtime Performance Optimizations
 
-The viewer ships with mobile-first optimizations that can be tuned in `src/components/GaussianSplatViewer.tsx` and `src/lib/dynamicResolution.ts`:
+The viewer ships with mobile-first optimizations that preserve full visual quality:
 
 | Optimization | Mechanism |
 |---|---|
-| Dynamic Resolution Scaling (DRS) | Quality-first: internal pixel ratio adapts gently (0.85–1.0) and only after *sustained* low FPS. It never changes resolution while orbiting, so there's no blur-on-move. |
-| Zero-copy worker sorting | `SharedArrayBuffer` sort buffers are used when the page is cross-origin isolated (COOP/COEP headers set in `vite.config.ts`), otherwise it falls back to copy-based sorting. |
-| SH degree 0 | Only base color is decoded by default (selectable up to degree 3 from the advanced controls), cutting shader work and memory bandwidth. |
-| Half-float covariances | Covariance data is stored as 16-bit floats on the GPU. |
-| No auto-rotate | Idle scenes stop re-sorting and re-rendering every frame. |
 | Tightened frustum culling | Only splats in/near the camera frustum are sorted and drawn (video-game style). The library's default margin was too loose; it is tightened via `patch-package` (`patches/@mkkellogg+gaussian-splats-3d+0.4.7.patch`). |
+| Zero-copy worker sorting | `SharedArrayBuffer` sort buffers are used when the page is cross-origin isolated (COOP/COEP headers set in `vite.config.ts`), otherwise it falls back to copy-based sorting. No visual impact. |
+| SH degree selector | Base color (degree 0) by default; selectable up to degree 3 from the advanced controls. |
 
-Lazy/partial sorting and Web-Worker sorting are provided by the underlying `GaussianSplats3D` library.
+Full-precision covariances (32-bit), uncompressed in-memory data, native device pixel ratio, and auto-rotation are preserved, matching the reference-quality April build. Lazy/partial sorting and Web-Worker sorting are provided by the underlying `GaussianSplats3D` library.
 
 For browser-side validation in Chrome, open DevTools, press `Esc`, open the Rendering drawer and enable `Frame Rendering Stats`. Watch FPS and GPU memory while orbiting the scene; memory that rises continuously after replacing scenes indicates missing disposal or retained resources.
 
