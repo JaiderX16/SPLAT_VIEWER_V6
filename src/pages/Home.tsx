@@ -30,6 +30,7 @@ import {
   ChevronRight,
   Activity,
   SlidersHorizontal,
+  Camera,
 } from 'lucide-react';
 
 const DEMO_SCENES: Array<{ name: string; url: string; format: LoadOptions['format'] }> = [
@@ -190,6 +191,7 @@ export default function Home() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [mobileSheetState, setMobileSheetState] = useState('idle');
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [editorView, setEditorView] = useState(false);
 
   const isMobile = useIsMobile();
 
@@ -688,7 +690,30 @@ export default function Home() {
         >
           <SlidersHorizontal className="w-4 h-4" />
         </button>
+
+        {/* Editor view (camera debug) */}
+        <button
+          className={`w-12 h-12 rounded-full border border-white/10 backdrop-blur-xl flex items-center justify-center hover:scale-105 active:scale-95 transition-all duration-150 ${
+            editorView
+              ? 'text-cyan-300 bg-cyan-400/10 border-cyan-400/30'
+              : 'text-white/50 bg-black/50 hover:bg-white/10 hover:text-white'
+          }`}
+          onClick={() => {
+            const next = !editorView;
+            setEditorView(next);
+            viewerRef.current?.setEditorViewVisible(next);
+          }}
+          title="Modo editor (ver cámara y frustum)"
+          aria-pressed={editorView}
+        >
+          <Camera className="w-4 h-4" />
+        </button>
       </div>
+
+      {/* ── Editor view overlay frame (matches the GL picture-in-picture) ── */}
+      {editorView && (
+        <div className="absolute top-3 right-3 w-[30%] h-[30%] min-w-[120px] min-h-[120px] pointer-events-none border border-cyan-400/40 rounded-md z-[200] bg-transparent" />
+      )}
 
       {/* ── Advanced controls panel ── */}
       <AdvancedControlsPanel

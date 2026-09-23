@@ -1,6 +1,7 @@
 import { useRef, useEffect, forwardRef, useImperativeHandle } from 'react';
 import * as THREE from 'three';
 import * as GaussianSplats3D from '@mkkellogg/gaussian-splats-3d';
+import { EditorOverlay } from '@/lib/editorOverlay';
 
 // True when SharedArrayBuffer is available (page is cross-origin isolated).
 function isSharedArrayBufferAvailable(): boolean {
@@ -79,6 +80,7 @@ export interface GaussianSplatViewerHandle {
   setGridVisible: (visible: boolean) => void;
   setAxesVisible: (visible: boolean) => void;
   setCameraView: (view: CameraView) => void;
+  setEditorViewVisible: (visible: boolean) => void;
 }
 
 interface GaussianSplatViewerProps {
@@ -109,6 +111,7 @@ const GaussianSplatViewer = forwardRef<GaussianSplatViewerHandle, GaussianSplatV
   }, ref) => {
     const containerRef = useRef<HTMLDivElement>(null);
     const viewerRef = useRef<GaussianSplats3D.Viewer | null>(null);
+    const editorOverlayRef = useRef<EditorOverlay | null>(null);
     const gridHelperRef = useRef<THREE.GridHelper | null>(null);
     const axesHelperRef = useRef<THREE.AxesHelper | null>(null);
     const isRunningRef = useRef(false);
@@ -168,6 +171,11 @@ const GaussianSplatViewer = forwardRef<GaussianSplatViewerHandle, GaussianSplatV
         c.autoRotateSpeed = ROTATION.SPEED_FAST;
       }
 
+      // ── Editor view overlay (picture-in-picture debug view) ────────────────
+      const editorOverlay = new EditorOverlay(viewer);
+      editorOverlay.enable();
+      editorOverlayRef.current = editorOverlay;
+
       if (!isRunningRef.current) {
         viewer.start();
         isRunningRef.current = true;
@@ -189,6 +197,8 @@ const GaussianSplatViewer = forwardRef<GaussianSplatViewerHandle, GaussianSplatV
         disposeHelper(axesHelperRef.current);
         gridHelperRef.current = null;
         axesHelperRef.current = null;
+        editorOverlayRef.current?.dispose();
+        editorOverlayRef.current = null;
         // dispose() is async – its .finally() may try removeChild on a node
         // that React already unmounted (StrictMode double-invoke).
         viewer.dispose().catch(() => {});
@@ -422,6 +432,9 @@ const GaussianSplatViewer = forwardRef<GaussianSplatViewerHandle, GaussianSplatV
         v.camera.lookAt(target);
         controls.update();
         v.forceRenderNextFrame?.();
+      },
+      setEditorViewVisible: (visible: boolean) => {
+        editorOverlayRef.current?.setVisible(visible);
       },
     }), []);
 

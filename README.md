@@ -13,6 +13,7 @@ A modern React + TypeScript wrapper for the [GaussianSplats3D](https://github.co
 - **Real-time info panel** — FPS, splat count, camera position, sort time, and more
 - **Multi-scene support** — Load multiple splat scenes simultaneously
 - **Advanced controls** — Camera view presets (front/back/top/…), orthographic/perspective toggle, FOV, spherical-harmonics quality, background color, grid & axes (SuperSplat-style)
+- **Editor view** — Picture-in-picture debug viewport showing the camera gizmo, its frustum, and only the splats currently being rendered
 
 ## 2026 Web 3D Performance Benchmark
 
