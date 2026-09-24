@@ -169,10 +169,30 @@ export function useGaussianSplats(containerRef: React.RefObject<HTMLDivElement |
     setHasScene(false);
   }, []);
 
+interface ViewerMeshHost {
+  splatMesh?: {
+    getSplatCount?: () => number;
+    getPointCloudModeEnabled: () => boolean;
+    setPointCloudModeEnabled: (enabled: boolean) => void;
+    setSplatScale: (scale: number) => void;
+    getSplatScale: () => number;
+  };
+  splatRenderCount?: number;
+  currentFPS?: number;
+  lastSortTime?: number;
+  camera?: {
+    position: { x: number; y: number; z: number };
+    up: { x: number; y: number; z: number };
+  };
+  controls?: {
+    target: { x: number; y: number; z: number };
+  };
+}
+
   const togglePointCloudMode = useCallback(() => {
     if (!viewerRef.current) return;
-    const viewer = viewerRef.current;
-    const mesh = (viewer as any).splatMesh;
+    const viewer = viewerRef.current as unknown as ViewerMeshHost;
+    const mesh = viewer.splatMesh;
     if (mesh) {
       mesh.setPointCloudModeEnabled(!mesh.getPointCloudModeEnabled());
     }
@@ -180,7 +200,8 @@ export function useGaussianSplats(containerRef: React.RefObject<HTMLDivElement |
 
   const setSplatScale = useCallback((scale: number) => {
     if (!viewerRef.current) return;
-    const mesh = (viewerRef.current as any).splatMesh;
+    const viewer = viewerRef.current as unknown as ViewerMeshHost;
+    const mesh = viewer.splatMesh;
     if (mesh) {
       mesh.setSplatScale(scale);
     }
@@ -188,7 +209,7 @@ export function useGaussianSplats(containerRef: React.RefObject<HTMLDivElement |
 
   const updateInfo = useCallback(() => {
     if (!viewerRef.current) return;
-    const viewer = viewerRef.current as any;
+    const viewer = viewerRef.current as unknown as ViewerMeshHost;
     const mesh = viewer.splatMesh;
     if (!mesh) return;
 

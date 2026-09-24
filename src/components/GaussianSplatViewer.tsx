@@ -1,7 +1,7 @@
 import { useRef, useEffect, forwardRef, useImperativeHandle } from 'react';
 import * as THREE from 'three';
 import * as GaussianSplats3D from '@mkkellogg/gaussian-splats-3d';
-import { EditorOverlay } from '@/lib/editorOverlay';
+import { EditorOverlay, type OverlayViewerHost } from '@/lib/editorOverlay';
 
 // ─── Camera settings (replicados del proyecto de referencia) ─────────────────
 const CAMERA = {
@@ -53,10 +53,44 @@ const ANIMATION = {
 /** Named camera viewpoints, mirroring SuperSplat-style view presets. */
 export type CameraView = 'front' | 'back' | 'left' | 'right' | 'top' | 'bottom' | 'reset';
 
+interface ViewerControlsLike {
+  enableDamping: boolean;
+  dampingFactor: number;
+  minPolarAngle: number;
+  maxPolarAngle: number;
+  minDistance: number;
+  maxDistance: number;
+  autoRotate: boolean;
+  autoRotateSpeed: number;
+  target: THREE.Vector3;
+  update: () => void;
+  addEventListener: (event: string, listener: () => void) => void;
+}
+
+interface ViewerInternalLike {
+  controls?: ViewerControlsLike;
+  camera?: THREE.Camera & {
+    isOrthographicCamera?: boolean;
+    position: THREE.Vector3;
+    up: THREE.Vector3;
+    lookAt: (target: THREE.Vector3 | [number, number, number]) => void;
+  };
+  perspectiveCamera?: THREE.PerspectiveCamera;
+  renderer?: THREE.WebGLRenderer;
+  threeScene?: THREE.Scene;
+  splatMesh?: {
+    scenes?: unknown[];
+    setPointCloudModeEnabled: (enabled: boolean) => void;
+    setSplatScale: (scale: number) => void;
+  };
+  forceRenderNextFrame?: () => void;
+  setOrthographicMode?: (enabled: boolean) => void;
+}
+
 export interface GaussianSplatViewerHandle {
   viewer: GaussianSplats3D.Viewer | null;
-  addSplatScene: (path: string, options?: any) => Promise<void>;
-  addSplatScenes: (sceneOptions: any[], showLoadingUI?: boolean) => Promise<void>;
+  addSplatScene: (path: string, options?: Record<string, unknown>) => Promise<void>;
+  addSplatScenes: (sceneOptions: Record<string, unknown>[], showLoadingUI?: boolean) => Promise<void>;
   removeSplatScene: (index: number) => Promise<void>;
   removeSplatScenes: (indexes: number[]) => Promise<void>;
   start: () => void;
@@ -65,7 +99,7 @@ export interface GaussianSplatViewerHandle {
   setPointCloudMode: (enabled: boolean) => void;
   setSplatScale: (scale: number) => void;
   setActiveSphericalHarmonicsDegrees: (degree: number) => void;
-  getSplatScene: (index: number) => any;
+  getSplatScene: (index: number) => unknown;
   getSceneCount: () => number;
   resetCamera: () => void;
   setOrthographicMode: (enabled: boolean) => void;
@@ -117,6 +151,14 @@ const GaussianSplatViewer = forwardRef<GaussianSplatViewerHandle, GaussianSplatV
     const onErrorRef = useRef(onError);
     const introRafRef = useRef<number | null>(null);
 
+    const initPropsRef = useRef({
+      cameraUp,
+      initialCameraPosition,
+      initialCameraLookAt,
+      logLevel,
+      sphericalHarmonicsDegree,
+    });
+
     useEffect(() => {
       onProgressRef.current = onProgress;
       onLoadStartRef.current = onLoadStart;
@@ -127,11 +169,12 @@ const GaussianSplatViewer = forwardRef<GaussianSplatViewerHandle, GaussianSplatV
     useEffect(() => {
       if (!containerRef.current) return;
 
+      const initProps = initPropsRef.current;
       const viewer = new GaussianSplats3D.Viewer({
         rootElement: containerRef.current,
-        cameraUp,
-        initialCameraPosition,
-        initialCameraLookAt,
+        cameraUp: initProps.cameraUp,
+        initialCameraPosition: initProps.initialCameraPosition,
+        initialCameraLookAt: initProps.initialCameraLookAt,
         selfDrivenMode: true,
         useBuiltInControls: true,
         sceneRevealMode: GaussianSplats3D.SceneRevealMode.Instant,
@@ -143,8 +186,8 @@ const GaussianSplatViewer = forwardRef<GaussianSplatViewerHandle, GaussianSplatV
         antialiased: false,
         splatRenderMode: GaussianSplats3D.SplatRenderMode.ThreeD,
         renderMode: GaussianSplats3D.RenderMode.Always,
-        logLevel,
-        sphericalHarmonicsDegree,
+        logLevel: initProps.logLevel,
+        sphericalHarmonicsDegree: initProps.sphericalHarmonicsDegree,
         enableOptionalEffects: false,
         inMemoryCompressionLevel: 0,
         freeIntermediateSplatData: false,
@@ -153,31 +196,31 @@ const GaussianSplatViewer = forwardRef<GaussianSplatViewerHandle, GaussianSplatV
       viewerRef.current = viewer;
 
       // ── Controls configuration (replicado exactamente) ─────────────────────
-      if (viewer.controls) {
-        const c = viewer.controls as any;
-        c.enableDamping = DAMPING.ENABLED;
-        c.dampingFactor = DAMPING.FACTOR;
-        c.minPolarAngle = CAMERA.MIN_POLAR_ANGLE;
-        c.maxPolarAngle = CAMERA.MAX_POLAR_ANGLE;
-        c.minDistance = CAMERA.MIN_DISTANCE;
-        c.maxDistance = CAMERA.MAX_DISTANCE;
-        c.autoRotate = true;
-        c.autoRotateSpeed = ROTATION.SPEED_INTRO;
+      const internalControls = (viewer as unknown as ViewerInternalLike).controls;
+      if (internalControls) {
+        internalControls.enableDamping = DAMPING.ENABLED;
+        internalControls.dampingFactor = DAMPING.FACTOR;
+        internalControls.minPolarAngle = CAMERA.MIN_POLAR_ANGLE;
+        internalControls.maxPolarAngle = CAMERA.MAX_POLAR_ANGLE;
+        internalControls.minDistance = CAMERA.MIN_DISTANCE;
+        internalControls.maxDistance = CAMERA.MAX_DISTANCE;
+        internalControls.autoRotate = true;
+        internalControls.autoRotateSpeed = ROTATION.SPEED_INTRO;
         // Stop the auto-orbit (and cancel the entrance) the moment the user
         // grabs the scene, so it never fights the user's input.
-        c.addEventListener('start', () => {
-          c.autoRotate = false;
+        internalControls.addEventListener('start', () => {
+          internalControls.autoRotate = false;
           if (introRafRef.current !== null) {
             cancelAnimationFrame(introRafRef.current);
             introRafRef.current = null;
           }
-          c.minDistance = CAMERA.MIN_DISTANCE;
-          c.maxDistance = CAMERA.MAX_DISTANCE;
+          internalControls.minDistance = CAMERA.MIN_DISTANCE;
+          internalControls.maxDistance = CAMERA.MAX_DISTANCE;
         });
       }
 
       // ── Editor view overlay (picture-in-picture debug view) ────────────────
-      const editorOverlay = new EditorOverlay(viewer);
+      const editorOverlay = new EditorOverlay(viewer as unknown as OverlayViewerHost);
       editorOverlay.enable();
       editorOverlayRef.current = editorOverlay;
 
@@ -193,10 +236,18 @@ const GaussianSplatViewer = forwardRef<GaussianSplatViewerHandle, GaussianSplatV
         }
         const disposeHelper = (obj: THREE.Object3D | null) => {
           if (!obj) return;
-          const anyObj = obj as any;
-          anyObj.geometry?.dispose?.();
-          const materials = Array.isArray(anyObj.material) ? anyObj.material : [anyObj.material];
-          materials.forEach((m: any) => m?.dispose?.());
+          if ('geometry' in obj && obj.geometry instanceof THREE.BufferGeometry) {
+            obj.geometry.dispose();
+          }
+          if ('material' in obj) {
+            const raw = (obj as { material: unknown }).material;
+            const materials = Array.isArray(raw) ? raw : [raw];
+            materials.forEach((m) => {
+              if (m && typeof m === 'object' && 'dispose' in m && typeof (m as { dispose: () => void }).dispose === 'function') {
+                (m as { dispose: () => void }).dispose();
+              }
+            });
+          }
         };
         disposeHelper(gridHelperRef.current);
         disposeHelper(axesHelperRef.current);
@@ -212,10 +263,16 @@ const GaussianSplatViewer = forwardRef<GaussianSplatViewerHandle, GaussianSplatV
       };
     }, []);
 
-    const runIntroAnimation = (viewer: any) => {
-      const controls = viewer?.controls;
-      const camera = viewer?.camera;
+    const runIntroAnimation = (viewer: GaussianSplats3D.Viewer) => {
+      const v = viewer as unknown as ViewerInternalLike;
+      const controls = v.controls;
+      const camera = v.camera;
       if (!controls || !camera) return;
+
+      if (introRafRef.current !== null) {
+        cancelAnimationFrame(introRafRef.current);
+        introRafRef.current = null;
+      }
 
       // Start the cinematic entrance from a far vantage point, then glide in
       // while slowly orbiting, to showcase the place.
@@ -227,22 +284,22 @@ const GaussianSplatViewer = forwardRef<GaussianSplatViewerHandle, GaussianSplatV
 
       const introStart = performance.now();
       const tick = () => {
-        if (!viewer.controls) return;
+        if (!controls) return;
         const t = Math.min((performance.now() - introStart) / ANIMATION.INTRO_DURATION, 1);
         // ease-in-out cubic for a clean, cinematic motion.
         const ease = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
         const dist = ANIMATION.INTRO_START_DISTANCE +
           (ANIMATION.INTRO_END_DISTANCE - ANIMATION.INTRO_START_DISTANCE) * ease;
-        viewer.controls.minDistance = dist;
-        viewer.controls.maxDistance = dist;
+        controls.minDistance = dist;
+        controls.maxDistance = dist;
         if (t < 1) {
           introRafRef.current = requestAnimationFrame(tick);
         } else {
           // Entrance finished: settle into a slow, smooth orbit.
-          viewer.controls.minDistance = CAMERA.MIN_DISTANCE;
-          viewer.controls.maxDistance = CAMERA.MAX_DISTANCE;
-          viewer.controls.autoRotateSpeed = ROTATION.SPEED_SLOW;
-          viewer.controls.update();
+          controls.minDistance = CAMERA.MIN_DISTANCE;
+          controls.maxDistance = CAMERA.MAX_DISTANCE;
+          controls.autoRotateSpeed = ROTATION.SPEED_SLOW;
+          controls.update();
           introRafRef.current = null;
         }
       };
@@ -253,7 +310,7 @@ const GaussianSplatViewer = forwardRef<GaussianSplatViewerHandle, GaussianSplatV
       get viewer() {
         return viewerRef.current;
       },
-      addSplatScene: async (path: string, options: any = {}) => {
+      addSplatScene: async (path: string, options: Record<string, unknown> = {}) => {
         const viewer = viewerRef.current;
         if (!viewer) throw new Error('Viewer not initialized');
 
@@ -263,7 +320,7 @@ const GaussianSplatViewer = forwardRef<GaussianSplatViewerHandle, GaussianSplatV
           const loadOptions = {
             ...options,
             showLoadingUI: false,
-            progressiveLoad: options.progressiveLoad ?? true,
+            progressiveLoad: (options.progressiveLoad as boolean | undefined) ?? true,
             onProgress: (percent: number, percentLabel: string, loaderStatus: number) => {
               onProgressRef.current?.(percent, percentLabel, loaderStatus);
             },
@@ -284,7 +341,7 @@ const GaussianSplatViewer = forwardRef<GaussianSplatViewerHandle, GaussianSplatV
           throw error;
         }
       },
-      addSplatScenes: async (sceneOptions: any[], showLoadingUI = true) => {
+      addSplatScenes: async (sceneOptions: Record<string, unknown>[], showLoadingUI = true) => {
         const viewer = viewerRef.current;
         if (!viewer) throw new Error('Viewer not initialized');
 
@@ -294,12 +351,16 @@ const GaussianSplatViewer = forwardRef<GaussianSplatViewerHandle, GaussianSplatV
           const options = sceneOptions.map((opt) => ({
             ...opt,
             showLoadingUI: false,
-            progressiveLoad: opt.progressiveLoad ?? true,
+            progressiveLoad: (opt.progressiveLoad as boolean | undefined) ?? true,
           }));
 
-          await viewer.addSplatScenes(options, showLoadingUI, (percent: number, percentLabel: string, loaderStatus: number) => {
-            onProgressRef.current?.(percent, percentLabel, loaderStatus);
-          });
+          await viewer.addSplatScenes(
+            options as unknown as GaussianSplats3D.SceneOptions[],
+            showLoadingUI,
+            (percent: number, percentLabel: string, loaderStatus: number) => {
+              onProgressRef.current?.(percent, percentLabel, loaderStatus);
+            }
+          );
 
           if (!isRunningRef.current) {
             viewer.start();
@@ -338,13 +399,13 @@ const GaussianSplatViewer = forwardRef<GaussianSplatViewerHandle, GaussianSplatV
         return viewerRef.current?.dispose() || Promise.resolve();
       },
       setPointCloudMode: (enabled: boolean) => {
-        const viewer = viewerRef.current as any;
+        const viewer = viewerRef.current as unknown as ViewerInternalLike;
         if (viewer?.splatMesh) {
           viewer.splatMesh.setPointCloudModeEnabled(enabled);
         }
       },
       setSplatScale: (scale: number) => {
-        const viewer = viewerRef.current as any;
+        const viewer = viewerRef.current as unknown as ViewerInternalLike;
         if (viewer?.splatMesh) {
           viewer.splatMesh.setSplatScale(scale);
         }
@@ -353,15 +414,19 @@ const GaussianSplatViewer = forwardRef<GaussianSplatViewerHandle, GaussianSplatV
         viewerRef.current?.setActiveSphericalHarmonicsDegrees(degree);
       },
       getSplatScene: (index: number) => {
-        const viewer = viewerRef.current as any;
+        const viewer = viewerRef.current as unknown as ViewerInternalLike;
         return viewer?.splatMesh?.scenes?.[index] || null;
       },
       getSceneCount: () => {
-        const viewer = viewerRef.current as any;
+        const viewer = viewerRef.current as unknown as ViewerInternalLike;
         return viewer?.splatMesh?.scenes?.length || 0;
       },
       resetCamera: () => {
-        const v = viewerRef.current as any;
+        if (introRafRef.current !== null) {
+          cancelAnimationFrame(introRafRef.current);
+          introRafRef.current = null;
+        }
+        const v = viewerRef.current as unknown as ViewerInternalLike;
         if (!v || !v.controls || !v.camera) return;
         v.controls.target.set(0, 0, 0);
         v.camera.position.set(
@@ -371,21 +436,23 @@ const GaussianSplatViewer = forwardRef<GaussianSplatViewerHandle, GaussianSplatV
         );
         v.camera.lookAt(0, 0, 0);
         v.camera.up.set(CAMERA.UP[0], CAMERA.UP[1], CAMERA.UP[2]);
+        v.controls.minDistance = CAMERA.MIN_DISTANCE;
+        v.controls.maxDistance = CAMERA.MAX_DISTANCE;
         v.controls.update();
         v.forceRenderNextFrame?.();
       },
       setOrthographicMode: (enabled: boolean) => {
-        const v = viewerRef.current as any;
+        const v = viewerRef.current as unknown as ViewerInternalLike;
         if (!v) return;
         v.setOrthographicMode?.(enabled);
         v.forceRenderNextFrame?.();
       },
       getOrthographicMode: () => {
-        const v = viewerRef.current as any;
+        const v = viewerRef.current as unknown as ViewerInternalLike;
         return v?.camera?.isOrthographicCamera ?? false;
       },
       setFov: (fov: number) => {
-        const v = viewerRef.current as any;
+        const v = viewerRef.current as unknown as ViewerInternalLike;
         const cam = v?.perspectiveCamera;
         if (!cam) return;
         cam.fov = THREE.MathUtils.clamp(fov, 10, 120);
@@ -393,18 +460,18 @@ const GaussianSplatViewer = forwardRef<GaussianSplatViewerHandle, GaussianSplatV
         v.forceRenderNextFrame?.();
       },
       getFov: () => {
-        const v = viewerRef.current as any;
+        const v = viewerRef.current as unknown as ViewerInternalLike;
         return v?.perspectiveCamera?.fov ?? 50;
       },
       setBackgroundColor: (color: string) => {
-        const v = viewerRef.current as any;
+        const v = viewerRef.current as unknown as ViewerInternalLike;
         if (v?.renderer) {
           v.renderer.setClearColor(new THREE.Color(color), 1);
           v.forceRenderNextFrame?.();
         }
       },
       setGridVisible: (visible: boolean) => {
-        const v = viewerRef.current as any;
+        const v = viewerRef.current as unknown as ViewerInternalLike;
         if (!v?.threeScene) return;
         if (!gridHelperRef.current) {
           gridHelperRef.current = new THREE.GridHelper(10, 20, 0x888888, 0x2a2a2a);
@@ -415,7 +482,7 @@ const GaussianSplatViewer = forwardRef<GaussianSplatViewerHandle, GaussianSplatV
         v.forceRenderNextFrame?.();
       },
       setAxesVisible: (visible: boolean) => {
-        const v = viewerRef.current as any;
+        const v = viewerRef.current as unknown as ViewerInternalLike;
         if (!v?.threeScene) return;
         if (!axesHelperRef.current) {
           axesHelperRef.current = new THREE.AxesHelper(1);
@@ -425,7 +492,7 @@ const GaussianSplatViewer = forwardRef<GaussianSplatViewerHandle, GaussianSplatV
         v.forceRenderNextFrame?.();
       },
       setCameraView: (view: CameraView) => {
-        const v = viewerRef.current as any;
+        const v = viewerRef.current as unknown as ViewerInternalLike;
         if (!v?.camera || !v?.controls) return;
         const controls = v.controls;
         const target = controls.target;

@@ -7660,10 +7660,15 @@ class SplatMaterial {
 
             vec4 viewCenter = transformModelViewMatrix * vec4(splatCenter, 1.0);
 
+            if (orthographicMode == 0 && viewCenter.z >= -0.05) {
+                gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
+                return;
+            }
+
             vec4 clipCenter = projectionMatrix * viewCenter;
 
-            float clip = 1.2 * clipCenter.w;
-            if (clipCenter.z < -clip || clipCenter.x < -clip || clipCenter.x > clip || clipCenter.y < -clip || clipCenter.y > clip) {
+            float clip = 1.05 * clipCenter.w;
+            if (clipCenter.z < -clip || clipCenter.z > clip || clipCenter.x < -clip || clipCenter.x > clip || clipCenter.y < -clip || clipCenter.y > clip) {
                 gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
                 return;
             }
@@ -8835,7 +8840,7 @@ function createSplatTreeWorker(self) {
 
     }
 
-    processSplatTreeNode = function(tree, node, indexToCenter, sceneCenters) {
+    const processSplatTreeNode = function(tree, node, indexToCenter, sceneCenters) {
         const splatCount = node.data.indexes.length;
 
         if (splatCount < tree.maxCentersPerNode || node.depth > tree.maxDepth) {
@@ -9615,7 +9620,7 @@ class SplatMesh extends THREE.Mesh {
             this.disposeSplatTree();
             // TODO: expose SplatTree constructor parameters (maximumDepth and maxCentersPerNode) so that they can
             // be configured on a per-scene basis
-            this.baseSplatTree = new SplatTree(8, 1000);
+            this.baseSplatTree = new SplatTree(10, 500);
             const buildStartTime = performance.now();
             const splatColor = new THREE.Vector4();
             this.baseSplatTree.processSplatMesh(this, (splatIndex) => {
@@ -13343,6 +13348,12 @@ class Viewer {
                                                                         showLoadingUIForSplatTreeBuild, replaceExisting,
                                                                         preserveVisibleRegion);
 
+                        this.splatMesh.onSplatTreeReady(() => {
+                            if (this.isDisposingOrDisposed()) return;
+                            this.runSplatSort(true);
+                            this.forceRenderNextFrame();
+                        });
+
                         const maxSplatCount = this.splatMesh.getMaxSplatCount();
                         if (this.sortWorker && this.sortWorker.maxSplatCount !== maxSplatCount) this.disposeSortWorker();
                         // If we aren't calculating the splat distances from the center on the GPU, the sorting worker needs
@@ -14101,8 +14112,8 @@ class Viewer {
 
             if (!force) {
                 if (!this.splatMesh.dynamicMode && queuedSorts.length === 0) {
-                    if (angleDiff <= 0.99) needsRefreshForRotation = true;
-                    if (positionDiff >= 1.0) needsRefreshForPosition = true;
+                    if (angleDiff <= 0.998) needsRefreshForRotation = true;
+                    if (positionDiff >= 0.15) needsRefreshForPosition = true;
                     if (!needsRefreshForRotation && !needsRefreshForPosition) return Promise.resolve(false);
                 }
             }
@@ -14211,6 +14222,8 @@ class Viewer {
 
         return function(gatherAllNodes = false) {
 
+            this.camera.updateMatrixWorld();
+            if (this.splatMesh) this.splatMesh.updateMatrixWorld();
             this.camera.updateProjectionMatrix();
 
             const splatTree = this.splatMesh.getSplatTree();
@@ -14235,21 +14248,21 @@ class Viewer {
                     for (let i = 0; i < nodeCount; i++) {
                         const node = subTree.nodesWithIndexes[i];
                         if (!node.data || !node.data.indexes || node.data.indexes.length === 0) continue;
-                        tempVector.copy(node.center).applyMatrix4(modelView);
 
+                        // Precise AABB Frustum Culling
+                        if (!gatherAllNodes) {
+                            if (node.boundingBox) {
+                                if (!frustum.intersectsBox(node.boundingBox)) continue;
+                            } else {
+                                const ns = nodeSize(node);
+                                nodeSphere.set(node.center, ns * 0.5);
+                                if (!frustum.intersectsSphere(nodeSphere)) continue;
+                            }
+                        }
+
+                        tempVector.copy(node.center).applyMatrix4(modelView);
                         const distanceToNode = tempVector.length();
 
-                        // Cull the node if its bounding sphere lies entirely
-                        // outside the view frustum (behind the camera, off to
-                        // the sides, or beyond the near/far planes). A small
-                        // extra buffer keeps a reserve of splats just outside
-                        // the frustum so screen edges don't flicker while the
-                        // camera moves fast.
-                        const ns = nodeSize(node);
-                        nodeSphere.set(node.center, ns * 0.5 + 0.5);
-                        if (!gatherAllNodes && !frustum.intersectsSphere(nodeSphere)) {
-                            continue;
-                        }
                         splatRenderCount += node.data.indexes.length;
                         nodeRenderList[nodeRenderCount] = node;
                         node.data.distanceToNode = distanceToNode;

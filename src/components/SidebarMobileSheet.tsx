@@ -6,6 +6,9 @@ import React, {
   useEffect,
 } from 'react';
 import { Search, ArrowLeft, X, Upload } from 'lucide-react';
+import { type SceneModelItem } from './Sidebar';
+
+export type SheetState = 'idle' | 'half' | 'full';
 
 // ============================================================================
 // CONSTANTES
@@ -25,17 +28,22 @@ const SNAP_TO_FULL_THRESHOLD = 0.75; // > 75% del rango → full
 // HOOKS
 // ============================================================================
 
+interface WindowSize {
+  w: number;
+  h: number;
+}
+
 /** Escucha cambios de tamaño de ventana con throttle via RAF */
-function useWindowSize() {
-  const [size, setSize] = useState(() => ({
+function useWindowSize(): WindowSize {
+  const [size, setSize] = useState<WindowSize>(() => ({
     w: typeof window !== 'undefined' ? window.innerWidth : 390,
     h: typeof window !== 'undefined' ? window.innerHeight : 844,
   }));
 
   useEffect(() => {
-    let rafId = null;
+    let rafId: number | null = null;
     const onResize = () => {
-      cancelAnimationFrame(rafId);
+      if (rafId !== null) cancelAnimationFrame(rafId);
       rafId = requestAnimationFrame(() =>
         setSize({ w: window.innerWidth, h: window.innerHeight })
       );
@@ -43,15 +51,21 @@ function useWindowSize() {
     window.addEventListener('resize', onResize);
     return () => {
       window.removeEventListener('resize', onResize);
-      cancelAnimationFrame(rafId);
+      if (rafId !== null) cancelAnimationFrame(rafId);
     };
   }, []);
 
   return size;
 }
 
+interface SnapHeights {
+  idle: number;
+  half: number;
+  full: number;
+}
+
 /** Calcula las alturas de snap en función de la altura de pantalla */
-function useSnapHeights(screenH) {
+function useSnapHeights(screenH: number): SnapHeights {
   return useMemo(
     () => ({
       idle: IDLE_HEIGHT,
@@ -67,17 +81,27 @@ function useSnapHeights(screenH) {
 // ============================================================================
 
 /** Interpola linealmente entre a y b con factor t ∈ [0,1] */
-const lerp = (a, b, t) => a + (b - a) * Math.max(0, Math.min(1, t));
+const lerp = (a: number, b: number, t: number) => a + (b - a) * Math.max(0, Math.min(1, t));
+
+interface SheetGeometry {
+  width: number;
+  bottom: number;
+  radTop: number;
+  radBottom: number;
+}
 
 /** Calcula geometría del sheet a partir de la altura actual */
-function computeSheetGeometry(currentH, snapHeights, screenW) {
+function computeSheetGeometry(currentH: number, snapHeights: SnapHeights, screenW: number): SheetGeometry {
   const { idle: idleH, half: halfH, full: fullH } = snapHeights;
 
   const idleW = Math.min(IDLE_MAX_WIDTH, Math.max(0, screenW - 48));
   const halfW = screenW * HALF_WIDTH_RATIO;
   const fullW = screenW;
 
-  let width, radTop, radBottom, bottom;
+  let width: number;
+  let radTop: number;
+  let radBottom: number;
+  let bottom: number;
 
   if (currentH <= idleH) {
     width = idleW;
@@ -102,8 +126,8 @@ function computeSheetGeometry(currentH, snapHeights, screenW) {
 }
 
 /** Determina el estado de snap más cercano dada la altura de arrastre */
-function resolveSnapState(currentH, snapHeights) {
-  const { idle: idleH, half: halfH, full: fullH } = snapHeights;
+function resolveSnapState(currentH: number, snapHeights: SnapHeights): SheetState {
+  const { idle: idleH, full: fullH } = snapHeights;
   const range = fullH - idleH;
   const ratio = (currentH - idleH) / range;
 
@@ -116,7 +140,7 @@ function resolveSnapState(currentH, snapHeights) {
 // SUB-COMPONENTES
 // ============================================================================
 
-const ClearButton = ({ onClear }) => (
+const ClearButton = ({ onClear }: { onClear: (e: React.MouseEvent) => void }) => (
   <button
     type="button"
     aria-label="Limpiar búsqueda"
@@ -127,6 +151,15 @@ const ClearButton = ({ onClear }) => (
   </button>
 );
 
+interface SearchBarProps {
+  isExpanded: boolean;
+  placeholder: string;
+  onExpand: () => void;
+  onCollapse: () => void;
+  value: string;
+  onChange: (value: string) => void;
+}
+
 const SearchBar = ({
   isExpanded,
   placeholder,
@@ -134,15 +167,15 @@ const SearchBar = ({
   onCollapse,
   value,
   onChange,
-}) => {
-  const inputRef = useRef(null);
+}: SearchBarProps) => {
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const handleContainerClick = useCallback(() => {
     if (!isExpanded) onExpand();
   }, [isExpanded, onExpand]);
 
   const handleBackClick = useCallback(
-    (e) => {
+    (e: React.MouseEvent) => {
       e.stopPropagation();
       if (isExpanded) onCollapse();
     },
@@ -150,7 +183,7 @@ const SearchBar = ({
   );
 
   const handleClear = useCallback(
-    (e) => {
+    (e: React.MouseEvent) => {
       e.stopPropagation();
       onChange('');
       inputRef.current?.focus();
@@ -230,11 +263,18 @@ const SearchBar = ({
   );
 };
 
-const DragHandle = ({ isVisible, onPointerDown, onPointerMove, onPointerUp }) => (
+interface DragHandleProps {
+  isVisible: boolean;
+  onPointerDown: (e: React.PointerEvent<HTMLDivElement>) => void;
+  onPointerMove: (e: React.PointerEvent<HTMLDivElement>) => void;
+  onPointerUp: (e: React.PointerEvent<HTMLDivElement>) => void;
+}
+
+const DragHandle = ({ isVisible, onPointerDown, onPointerMove, onPointerUp }: DragHandleProps) => (
   <div
     role="separator"
     aria-hidden="true"
-    className={`w-full flex items-center justify-center cursor-grab active:cursor-grabbing shrink-0 touch-none transition-all duration-[400ms] ${
+    className={`w-full flex items-center justify-center cursor-grab active:cursor-grabbing shrink-0 touch-none transition-all duration-300 ${
       isVisible ? 'h-[24px] opacity-100' : 'h-0 opacity-0 pointer-events-none'
     }`}
     onPointerDown={onPointerDown}
@@ -247,7 +287,14 @@ const DragHandle = ({ isVisible, onPointerDown, onPointerMove, onPointerUp }) =>
 );
 
 /** Elemento de modelo individual en la lista */
-const ModelItem = ({ model, index, isActive, onSelect }) => {
+interface ModelItemProps {
+  model: SceneModelItem;
+  index: number;
+  isActive: boolean;
+  onSelect: (name: string) => void;
+}
+
+const ModelItem = ({ model, index, isActive, onSelect }: ModelItemProps) => {
   const num = String(index + 1).padStart(2, '0');
   return (
     <button
@@ -292,6 +339,17 @@ const ModelItem = ({ model, index, isActive, onSelect }) => {
 // COMPONENTE PRINCIPAL
 // ============================================================================
 
+export interface SidebarMobileSheetProps {
+  sheetState: SheetState;
+  onSheetStateChange: (state: SheetState) => void;
+  models?: SceneModelItem[];
+  activeId?: string;
+  onSelectModel?: (name: string) => void;
+  onUpload?: () => void;
+  searchPlaceholder?: string;
+  className?: string;
+}
+
 const SidebarMobileSheet = ({
   sheetState,
   onSheetStateChange,
@@ -301,11 +359,11 @@ const SidebarMobileSheet = ({
   onUpload,
   searchPlaceholder = 'Search scenes…',
   className = '',
-}) => {
+}: SidebarMobileSheetProps) => {
   const { w: screenW, h: screenH } = useWindowSize();
   const isMobile = screenW < 768;
 
-  const [dragHeight, setDragHeight] = useState(null);
+  const [dragHeight, setDragHeight] = useState<number | null>(null);
   const [busqueda, setBusqueda] = useState('');
 
   const isDragging = useRef(false);
@@ -321,7 +379,7 @@ const SidebarMobileSheet = ({
   const transitionClass =
     dragHeight !== null
       ? ''
-      : 'transition-all duration-[500ms] ease-[cubic-bezier(0.34,1.05,0.64,1)]';
+      : 'transition-all duration-500 ease-out';
 
   // Geometría derivada
   const geometry = useMemo(
@@ -354,7 +412,7 @@ const SidebarMobileSheet = ({
   }, [onSheetStateChange]);
 
   const handleModelClick = useCallback(
-    (sceneName) => {
+    (sceneName: string) => {
       onSelectModel?.(sceneName);
       onSheetStateChange('idle');
       setBusqueda('');
@@ -364,7 +422,7 @@ const SidebarMobileSheet = ({
 
   // ── Drag handlers ───────────────────────────────────────────────────────────
   const handlePointerDown = useCallback(
-    (e) => {
+    (e: React.PointerEvent<HTMLDivElement>) => {
       e.currentTarget.setPointerCapture(e.pointerId);
       isDragging.current = true;
       startYRef.current = e.clientY;
@@ -373,7 +431,7 @@ const SidebarMobileSheet = ({
     [sheetState, snapHeights]
   );
 
-  const handlePointerMove = useCallback((e) => {
+  const handlePointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     if (!isDragging.current) return;
     const deltaY = startYRef.current - e.clientY;
     const newH = startHeightRef.current + deltaY;
@@ -385,7 +443,7 @@ const SidebarMobileSheet = ({
   }, [snapHeights.full]);
 
   const handlePointerUp = useCallback(
-    (e) => {
+    (e: React.PointerEvent<HTMLDivElement>) => {
       if (!isDragging.current) return;
       isDragging.current = false;
       e.currentTarget.releasePointerCapture(e.pointerId);
@@ -441,8 +499,8 @@ const SidebarMobileSheet = ({
 
       {/* Contenido – lista de modelos */}
       <div
-        {...(!isExpanded ? { inert: true } : {})}
-        className={`flex-1 overflow-y-auto mt-2 px-4 transition-[opacity,transform] duration-[400ms] delay-75
+        inert={!isExpanded ? true : undefined}
+        className={`flex-1 overflow-y-auto mt-2 px-4 transition-[opacity,transform] duration-300 delay-75
           [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]
           ${
             isExpanded

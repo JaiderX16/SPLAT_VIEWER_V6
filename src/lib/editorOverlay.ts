@@ -23,8 +23,17 @@ const FRUSTUM_EDGES = [
   0, 4, 1, 5, 2, 6, 3, 7, // near -> far connectors
 ];
 
+export interface OverlayViewerHost {
+  render: () => void;
+  renderer?: THREE.WebGLRenderer;
+  camera?: THREE.PerspectiveCamera | THREE.OrthographicCamera;
+  splatMesh?: THREE.Object3D;
+  rootElement?: HTMLElement;
+  forceRenderNextFrame?: () => void;
+}
+
 export class EditorOverlay {
-  private readonly viewer: any;
+  private readonly viewer: OverlayViewerHost;
   private readonly originalRender: () => void;
   private readonly overviewScene = new THREE.Scene();
   private readonly overviewCamera: THREE.PerspectiveCamera;
@@ -33,7 +42,7 @@ export class EditorOverlay {
   private enabled = false;
   private visible = false;
 
-  constructor(viewer: any) {
+  constructor(viewer: OverlayViewerHost) {
     this.viewer = viewer;
     this.originalRender = viewer.render.bind(viewer);
 
@@ -80,10 +89,9 @@ export class EditorOverlay {
   enable(): void {
     if (this.enabled) return;
     this.enabled = true;
-    const self = this;
     this.viewer.render = () => {
-      self.originalRender();
-      if (self.visible) self.renderOverlay();
+      this.originalRender();
+      if (this.visible) this.renderOverlay();
     };
   }
 

@@ -56,6 +56,7 @@ For browser-side validation in Chrome, open DevTools, press `Esc`, open the Rend
 | Nike Shoe | HuggingFace |
 | Train | HuggingFace |
 | Plush Toy | HuggingFace |
+| parque-constitucion | HuggingFace |
 
 ## Getting Started
 

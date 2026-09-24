@@ -7,10 +7,8 @@ import InfoPanel from '@/components/InfoPanel';
 import PerformanceBenchmarkPanel, { type PerformanceBenchmarkInfo } from '@/components/PerformanceBenchmarkPanel';
 import AdvancedControlsPanel from '@/components/AdvancedControlsPanel';
 import { estimateGaussianSplatVramMB, scoreBenchmark } from '@/lib/performanceBenchmark';
-// @ts-expect-error Sidebar is authored in JS in this project.
 import Sidebar from '@/components/Sidebar';
-// @ts-expect-error SidebarMobileSheet is authored in JS in this project.
-import SidebarMobileSheet from '@/components/SidebarMobileSheet';
+import SidebarMobileSheet, { type SheetState } from '@/components/SidebarMobileSheet';
 import {
   Dialog,
   DialogContent,
@@ -189,7 +187,7 @@ export default function Home() {
   const [splatScale, setSplatScale] = useState(1.0);
   const [activeScene, setActiveScene] = useState<string>('');
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [mobileSheetState, setMobileSheetState] = useState('idle');
+  const [mobileSheetState, setMobileSheetState] = useState<SheetState>('idle');
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [editorView, setEditorView] = useState(false);
 
@@ -277,24 +275,34 @@ export default function Home() {
     });
   }, []);
 
-  const startInfoLoop = useCallback(() => {
-    if (infoIntervalRef.current) clearInterval(infoIntervalRef.current);
-    infoIntervalRef.current = setInterval(updateSceneInfo, 200);
-  }, [updateSceneInfo]);
-
-  const stopInfoLoop = useCallback(() => {
-    if (infoIntervalRef.current) {
-      clearInterval(infoIntervalRef.current);
-      infoIntervalRef.current = null;
+  // Optimized metric polling: only runs when a scene is loaded and at least one panel is visible
+  const panelsVisible = infoVisible || benchmarkVisible;
+  useEffect(() => {
+    if (!hasScene || !panelsVisible) {
+      if (infoIntervalRef.current) {
+        clearInterval(infoIntervalRef.current);
+        infoIntervalRef.current = null;
+      }
+      return;
     }
-  }, []);
+    updateSceneInfo();
+    const interval = setInterval(updateSceneInfo, 250);
+    infoIntervalRef.current = interval;
+    return () => {
+      clearInterval(interval);
+      infoIntervalRef.current = null;
+    };
+  }, [hasScene, panelsVisible, updateSceneInfo]);
 
   useEffect(() => {
     return () => {
-      stopInfoLoop();
+      if (infoIntervalRef.current) {
+        clearInterval(infoIntervalRef.current);
+        infoIntervalRef.current = null;
+      }
       revokeActiveObjectUrl();
     };
-  }, [stopInfoLoop, revokeActiveObjectUrl]);
+  }, [revokeActiveObjectUrl]);
 
   const handleProgress = useCallback((percent: number, percentLabel: string, status: number) => {
     let stateStatus: ProgressiveLoadState['status'] = 'downloading';
@@ -338,11 +346,10 @@ export default function Home() {
       status: 'done',
       message: 'Scene loaded!',
     });
-    startInfoLoop();
     setTimeout(() => {
       setProgressiveState(prev => (prev.status === 'done' ? { ...prev, status: 'idle', message: '' } : prev));
     }, 2000);
-  }, [startInfoLoop]);
+  }, []);
 
   const handleError = useCallback((error: Error) => {
     console.error('Load error:', error);
@@ -358,6 +365,7 @@ export default function Home() {
 
   const loadScene = useCallback(async (url: string, options?: Partial<LoadOptions>) => {
     if (!viewerRef.current) return;
+    if (isLoading) return; // Prevent concurrent overlapping loads
 
     // Remove previous scene if one is already loaded
     try {
@@ -366,7 +374,6 @@ export default function Home() {
         setHasScene(false);
         setSceneInfo(null);
         setBenchmarkInfo(null);
-        stopInfoLoop();
       }
     } catch (e) {
       console.error('Error removing previous scene:', e);
@@ -395,22 +402,25 @@ export default function Home() {
     } catch (e) {
       handleError(e instanceof Error ? e : new Error(String(e)));
     }
-  }, [handleError, stopInfoLoop]);
+  }, [handleError, isLoading]);
 
   const handleLoadFile = useCallback(async (file: File, options: LoadOptions) => {
     const url = URL.createObjectURL(file);
     revokeActiveObjectUrl();
     activeObjectUrlRef.current = url;
-    await loadScene(url, options);
-    if (activeObjectUrlRef.current === url) {
-      URL.revokeObjectURL(url);
-      activeObjectUrlRef.current = null;
+    try {
+      await loadScene(url, options);
+    } finally {
+      if (activeObjectUrlRef.current === url) {
+        URL.revokeObjectURL(url);
+        activeObjectUrlRef.current = null;
+      }
     }
   }, [loadScene, revokeActiveObjectUrl]);
 
-  const handleLoadURL = useCallback((url: string, options: LoadOptions) => {
+  const handleLoadURL = useCallback(async (url: string, options: LoadOptions) => {
     revokeActiveObjectUrl();
-    loadScene(url, options);
+    await loadScene(url, options);
   }, [loadScene, revokeActiveObjectUrl]);
 
   const handleRemoveScene = useCallback(async () => {
@@ -419,10 +429,9 @@ export default function Home() {
     setHasScene(false);
     setSceneInfo(null);
     setBenchmarkInfo(null);
-    stopInfoLoop();
     revokeActiveObjectUrl();
     setActiveScene('');
-  }, [stopInfoLoop, revokeActiveObjectUrl]);
+  }, [revokeActiveObjectUrl]);
 
   const handleTogglePointCloud = useCallback(() => {
     const next = !pointCloudMode;
@@ -440,10 +449,10 @@ export default function Home() {
     viewerRef.current?.resetCamera();
   }, []);
 
-  const handleDemoSelect = useCallback((sceneName: string) => {
+  const handleDemoSelect = useCallback(async (sceneName: string) => {
     const scene = DEMO_SCENES.find((s) => s.name === sceneName);
     if (!scene || !viewerRef.current) return;
-    loadScene(scene.url, {
+    await loadScene(scene.url, {
       progressiveLoad: true,
       splatAlphaRemovalThreshold: 1,
       format: scene.format,

@@ -36,4 +36,19 @@ export default defineConfig({
       ),
     },
   },
+  build: {
+    chunkSizeWarningLimit: 1500,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules/three') || id.includes('three/build')) {
+            return 'three';
+          }
+          if (id.includes('gaussian-splats-3d')) {
+            return 'gaussian-splats';
+          }
+        },
+      },
+    },
+  },
 });

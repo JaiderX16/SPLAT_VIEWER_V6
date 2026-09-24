@@ -1,7 +1,23 @@
 import { X, Upload } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { type LoadOptions } from '@/components/SceneUploader';
 
-function formatTime(date) {
+export interface SceneModelItem {
+  name: string;
+  url: string;
+  format?: LoadOptions['format'];
+}
+
+export interface SidebarProps {
+  models?: SceneModelItem[];
+  activeId?: string;
+  onSelectModel: (name: string) => void;
+  onUpload: () => void;
+  isOpen: boolean;
+  setIsOpen: (isOpen: boolean) => void;
+}
+
+function formatTime(date: Date): string {
   return date.toLocaleTimeString('en-US', { hour12: false });
 }
 
@@ -12,7 +28,7 @@ export default function Sidebar({
   onUpload,
   isOpen,
   setIsOpen,
-}) {
+}: SidebarProps) {
   const [time, setTime] = useState(() => formatTime(new Date()));
 
   useEffect(() => {
@@ -23,7 +39,10 @@ export default function Sidebar({
   if (!isOpen) return null;
 
   return (
-    <aside className="absolute top-4 left-4 bottom-4 w-[320px] z-[300] flex flex-col rounded-[48px] bg-[#111113]/95 backdrop-blur-[28px] border border-white/[0.06] shadow-[0_8px_40px_rgba(0,0,0,0.6)] overflow-hidden">
+    <aside
+      aria-label="Panel lateral de escenas"
+      className="absolute top-4 left-4 bottom-4 w-[320px] z-[300] flex flex-col rounded-[48px] bg-[#111113]/95 backdrop-blur-[28px] border border-white/[0.06] shadow-[0_8px_40px_rgba(0,0,0,0.6)] overflow-hidden"
+    >
       {/* Header */}
       <div className="flex items-start justify-between p-6 pb-4">
         <div className="flex items-center gap-4">
@@ -43,6 +62,8 @@ export default function Sidebar({
         <button
           onClick={() => setIsOpen(false)}
           className="w-12 h-12 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-white/40 hover:text-white/80 hover:bg-white/10 transition-colors"
+          title="Cerrar panel"
+          aria-label="Cerrar panel"
         >
           <X className="w-4 h-4" />
         </button>
