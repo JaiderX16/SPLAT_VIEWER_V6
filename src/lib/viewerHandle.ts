@@ -64,8 +64,6 @@ export interface SplatViewerHandle {
   setGridVisible: (visible: boolean) => void;
   setAxesVisible: (visible: boolean) => void;
   setCameraView: (view: CameraView) => void;
-  /** Picture-in-picture editor camera. */
-  readonly supportsEditorView: boolean;
   /** Distance LOD: far splats are thinned/enlarged to save GPU time. */
   readonly supportsLod: boolean;
   setLodQuality: (quality: LodQuality) => void;

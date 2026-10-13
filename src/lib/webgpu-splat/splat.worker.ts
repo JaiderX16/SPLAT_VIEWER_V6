@@ -105,11 +105,6 @@ function buildAffine(transform?: SceneTransform): Affine | null {
 }
 
 // ─── Parsing ──────────────────────────────────────────────────────────────────
-const bounds = {
-  min: [Infinity, Infinity, Infinity] as [number, number, number],
-  max: [-Infinity, -Infinity, -Infinity] as [number, number, number],
-};
-
 function ensurePositionCapacity(splats: number) {
   if (positions.length >= splats * 3) return;
   const capacity = Math.max(splats, Math.ceil((positions.length / 3) * 1.5));
@@ -212,12 +207,6 @@ function parseRecords(bytes: Uint8Array, alphaThreshold: number, affine: Affine 
     positions[p] = x;
     positions[p + 1] = y;
     positions[p + 2] = z;
-    if (x < bounds.min[0]) bounds.min[0] = x;
-    if (y < bounds.min[1]) bounds.min[1] = y;
-    if (z < bounds.min[2]) bounds.min[2] = z;
-    if (x > bounds.max[0]) bounds.max[0] = x;
-    if (y > bounds.max[1]) bounds.max[1] = y;
-    if (z > bounds.max[2]) bounds.max[2] = z;
     kept++;
   }
 
@@ -233,8 +222,6 @@ async function load(url: string, alphaThreshold: number, transform: SceneTransfo
   alphas = new Uint8Array(0);
   radii = new Float32Array(0);
   splatCount = 0;
-  bounds.min = [Infinity, Infinity, Infinity];
-  bounds.max = [-Infinity, -Infinity, -Infinity];
   const affine = buildAffine(transform);
 
   const response = await fetch(url, { signal: abortController.signal });
@@ -294,7 +281,7 @@ async function load(url: string, alphaThreshold: number, transform: SceneTransfo
 
   if (token !== loadToken) return;
   if (splatCount === 0) throw new Error('El archivo no contiene splats válidos (.splat)');
-  post({ type: 'done', count: splatCount, bounds: { min: [...bounds.min], max: [...bounds.max] } });
+  post({ type: 'done', count: splatCount });
   runPendingSort();
 }
 

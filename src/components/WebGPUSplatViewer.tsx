@@ -94,7 +94,6 @@ const WebGPUSplatViewer = forwardRef<SplatViewerHandle, WebGPUSplatViewerProps>(
     useImperativeHandle(ref, (): SplatViewerHandle => ({
       backend: 'webgpu',
       supportsSphericalHarmonics: false,
-      supportsEditorView: true,
       supportsLod: true,
       setLodQuality: (quality) => rendererRef.current?.setLodQuality(quality),
       getLodQuality: () => rendererRef.current?.getLodQuality() ?? 'balanced',

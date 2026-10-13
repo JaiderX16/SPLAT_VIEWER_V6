@@ -6,8 +6,8 @@ import overlayShader from './overlay.wgsl';
 import { LOD_MAX_SCALE } from './protocol';
 import { cameraRay, lookAt, multiply, perspective, vec3, type Ray, type Vec3 } from './math';
 
-/** Picture-in-picture layout, shared with the CSS frame drawn by the host page. */
-export const EDITOR_VIEW_LAYOUT = {
+/** Picture-in-picture layout; Home draws the matching CSS frame (30%, min 120px, 12px margin). */
+const EDITOR_VIEW_LAYOUT = {
   /** Fraction of the canvas width/height. */
   FRACTION: 0.3,
   MIN_CSS: 120,

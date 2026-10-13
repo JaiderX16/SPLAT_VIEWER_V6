@@ -28,7 +28,7 @@ export interface VramEstimateInput {
   canvasPixels: number | null;
 }
 
-export const WEB_3D_BENCHMARK_2026 = {
+const WEB_3D_BENCHMARK_2026 = {
   fps: {
     ideal: 60,
     acceptableMin: 30,

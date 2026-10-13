@@ -325,7 +325,6 @@ const GaussianSplatViewer = forwardRef<SplatViewerHandle, GaussianSplatViewerPro
     useImperativeHandle(ref, () => ({
       backend: 'webgl' as const,
       supportsSphericalHarmonics: true,
-      supportsEditorView: true,
       supportsLod: false,
       setLodQuality: () => {},
       getLodQuality: () => 'high' as const,

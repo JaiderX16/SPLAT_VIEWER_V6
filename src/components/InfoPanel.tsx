@@ -22,7 +22,7 @@ interface InfoPanelProps {
   onToggle: () => void;
 }
 
-export const InfoPanel: React.FC<InfoPanelProps> = ({ info, visible, onToggle }) => {
+const InfoPanel: React.FC<InfoPanelProps> = ({ info, visible, onToggle }) => {
   if (!visible) return null;
 
   if (!info) {

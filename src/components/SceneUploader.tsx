@@ -36,7 +36,7 @@ const defaultOptions: LoadOptions = {
   format: 'auto',
 };
 
-export const SceneUploader: React.FC<SceneUploaderProps> = ({ onLoadFile, onLoadURL, isLoading }) => {
+const SceneUploader: React.FC<SceneUploaderProps> = ({ onLoadFile, onLoadURL, isLoading }) => {
   const [url, setUrl] = useState('');
   const [options, setOptions] = useState<LoadOptions>(defaultOptions);
   const [dragOver, setDragOver] = useState(false);

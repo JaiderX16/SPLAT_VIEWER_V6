@@ -320,10 +320,6 @@ export class SplatRenderer {
     this.needsRender = true;
   }
 
-  get splatCount() {
-    return this.loadedCount;
-  }
-
   // ─── Settings ──────────────────────────────────────────────────────────────
   setSplatScale(scale: number) {
     this.splatScale = scale;
@@ -399,9 +395,6 @@ export class SplatRenderer {
     this.needsRender = true;
   }
 
-  getEditorViewVisible() {
-    return this.editor.visible;
-  }
 
   /** Auto-rotate at `speed` during a dolly fly-in, then settle to `endSpeed`. */
   playIntro(position: Vec3, target: Vec3, fromDistance: number, toDistance: number, durationMs: number, introSpeed: number, endSpeed: number) {

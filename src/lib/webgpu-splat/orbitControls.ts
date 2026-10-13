@@ -161,10 +161,6 @@ export class OrbitControls {
     this.travelTo(target, vec3.add(target, this.offset(this.goalTheta, this.goalPhi, this.goalRadius)), durationMs);
   }
 
-  get isTravelling() {
-    return this.travel !== null;
-  }
-
   /** Cinematic dolly from `from` to `to` (radius) over `duration` ms. */
   flyRadius(from: number, to: number, duration: number) {
     this.radius = this.goalRadius = from;
@@ -182,10 +178,6 @@ export class OrbitControls {
 
   get isFlying() {
     return this.fly !== null;
-  }
-
-  invalidate() {
-    this.dirty = true;
   }
 
   /** Advances the smoothing. Returns true when the camera moved this frame. */

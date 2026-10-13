@@ -15,7 +15,7 @@ interface ProgressiveLoaderProps {
   state: ProgressiveLoadState;
 }
 
-export const ProgressiveLoader: React.FC<ProgressiveLoaderProps> = ({ state }) => {
+const ProgressiveLoader: React.FC<ProgressiveLoaderProps> = ({ state }) => {
   if (state.status === 'idle') return null;
 
   const isError = state.status === 'error';

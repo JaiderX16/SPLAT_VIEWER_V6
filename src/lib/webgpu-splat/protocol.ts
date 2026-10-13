@@ -83,11 +83,7 @@ export type WorkerToMain =
   | { type: 'progress'; loadedBytes: number; totalBytes: number }
   /** Packed splats `[first, first + count)` ready to upload. */
   | { type: 'chunk'; first: number; count: number; data: Uint32Array }
-  | {
-      type: 'done';
-      count: number;
-      bounds: { min: [number, number, number]; max: [number, number, number] };
-    }
+  | { type: 'done'; count: number }
   | {
       type: 'sorted';
       order: Uint32Array;
