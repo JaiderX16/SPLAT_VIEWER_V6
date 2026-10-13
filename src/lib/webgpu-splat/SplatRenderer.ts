@@ -388,6 +388,12 @@ export class SplatRenderer {
     return this.lodQuality;
   }
 
+  /** UI theme for chrome drawn by the renderer (editor picture-in-picture). */
+  setTheme(theme: 'light' | 'dark') {
+    this.editor.theme = theme;
+    this.needsRender = true;
+  }
+
   setEditorViewVisible(visible: boolean) {
     this.editor.visible = visible;
     this.needsRender = true;
@@ -473,7 +479,10 @@ export class SplatRenderer {
         lod: [this.lodPacked ? 1 : 0, LOD_MAX_SCALE, 0, 0],
       },
     });
-    const helperParams = { viewProj: this.viewProj, params: [GRID_HALF_SIZE, GRID_DIVISIONS, 1, 0] };
+    // Dark grid lines on a light scene background, light lines on a dark one.
+    const [cr, cg, cb] = this.clearColor;
+    const lightScene = 0.2126 * cr + 0.7152 * cg + 0.0722 * cb > 0.5 ? 1 : 0;
+    const helperParams = { viewProj: this.viewProj, params: [GRID_HALF_SIZE, GRID_DIVISIONS, 1, lightScene] };
     if (this.gridVisible) this.gridDraw.set({ helpers: helperParams });
     if (this.axesVisible) this.axesDraw.set({ helpers: helperParams });
 

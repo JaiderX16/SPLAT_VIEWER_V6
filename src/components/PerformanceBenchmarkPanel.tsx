@@ -34,38 +34,38 @@ interface MetricRowProps {
 }
 
 const statusDotClass: Record<BenchmarkStatus, string> = {
-  ideal: 'bg-emerald-300 shadow-[0_0_10px_rgba(110,231,183,0.55)]',
-  safe: 'bg-emerald-400',
-  ok: 'bg-sky-400',
-  warn: 'bg-amber-400',
-  danger: 'bg-red-400',
-  unknown: 'bg-white/30',
+  ideal: 'bg-emerald-600 shadow-[0_0_0_3px_rgba(16,185,129,0.18)] dark:bg-emerald-300 dark:shadow-[0_0_10px_rgba(110,231,183,0.55)]',
+  safe: 'bg-emerald-600 dark:bg-emerald-300',
+  ok: 'bg-sky-600 dark:bg-sky-300',
+  warn: 'bg-amber-700 dark:bg-amber-300',
+  danger: 'bg-red-600 dark:bg-red-200',
+  unknown: 'bg-neutral-400 dark:bg-white/40',
 };
 
 const statusTextClass: Record<BenchmarkStatus, string> = {
-  ideal: 'text-emerald-200',
-  safe: 'text-emerald-300',
-  ok: 'text-sky-300',
-  warn: 'text-amber-300',
-  danger: 'text-red-300',
-  unknown: 'text-white/45',
+  ideal: 'text-emerald-800 dark:text-emerald-100',
+  safe: 'text-emerald-800 dark:text-emerald-100',
+  ok: 'text-sky-800 dark:text-sky-100',
+  warn: 'text-amber-800 dark:text-amber-200',
+  danger: 'text-red-800 dark:text-red-100',
+  unknown: 'text-[#5a5a5f] dark:text-white/85',
 };
 
 function MetricRow({ icon, label, value, detail, status }: MetricRowProps) {
   return (
     <div className="grid grid-cols-[1fr_auto] items-center gap-3">
       <div className="flex min-w-0 items-center gap-2">
-        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/[0.06] text-white/55">
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-black/[0.05] dark:bg-black/[0.20] text-neutral-600 dark:text-white/85">
           {icon}
         </span>
         <div className="min-w-0">
-          <div className="truncate text-[11px] font-semibold uppercase tracking-[0.12em] text-white/40">
+          <div className="truncate text-[11px] font-semibold uppercase tracking-[0.12em] text-[#5a5a5f] dark:text-white/85">
             {label}
           </div>
           <div className={`truncate text-xs ${statusTextClass[status]}`}>{detail}</div>
         </div>
       </div>
-      <div className="flex items-center gap-2 font-mono text-sm text-white">
+      <div className="flex items-center gap-2 font-mono text-sm text-neutral-900 dark:text-white">
         <span className={`h-2 w-2 rounded-full ${statusDotClass[status]}`} />
         {value}
       </div>
@@ -95,27 +95,27 @@ export default function PerformanceBenchmarkPanel({ info, visible }: Performance
   return (
     <section
       aria-label="Benchmark de rendimiento Web 3D 2026"
-      className="absolute left-3 right-[5.5rem] top-4 z-[240] glass panel text-white md:left-auto md:top-6 md:right-[6.5rem] md:w-[360px]"
+      className="absolute left-3 right-[5.5rem] top-4 z-[240] glass panel text-neutral-900 dark:text-white md:left-auto md:top-6 md:right-[6.5rem] md:w-[360px]"
     >
       <div className="mb-3 flex items-start justify-between gap-3 px-2 pt-1">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <Activity className="h-4 w-4 text-sky-300" />
+            <Activity className="h-4 w-4 text-sky-800 dark:text-sky-100" />
             <h2 className="truncate text-sm font-semibold">Benchmark 2026</h2>
           </div>
-          <p className="mt-0.5 truncate text-[11px] text-white/45">
+          <p className="mt-0.5 truncate text-[11px] text-[#5a5a5f] dark:text-white/85">
             iPhone 13/14, A54/A55, Pixel 7a
           </p>
         </div>
         <span
-          className={`shrink-0 rounded-full border border-white/10 bg-white/[0.06] px-3 py-1 text-[11px] font-semibold ${statusTextClass[info?.score.overall.status ?? 'unknown']}`}
+          className={`shrink-0 rounded-full border border-black/[0.06] dark:border-white/[0.14] bg-black/[0.05] dark:bg-black/[0.20] px-3 py-1 text-[11px] font-semibold ${statusTextClass[info?.score.overall.status ?? 'unknown']}`}
         >
           {info?.score.overall.label ?? 'Sin escena'}
         </span>
       </div>
 
       {info ? (
-        <div className="panel-inner bg-white/[0.03] p-2 space-y-2.5">
+        <div className="panel-inner bg-black/[0.04] dark:bg-black/[0.20] p-2 space-y-2.5">
           <MetricRow
             icon={<Zap className="h-3.5 w-3.5" />}
             label="FPS"
@@ -152,26 +152,26 @@ export default function PerformanceBenchmarkPanel({ info, visible }: Performance
             status={info.score.resolution.status}
           />
 
-          <div className="grid grid-cols-3 gap-2 border-t border-white/10 pt-2 text-[11px]">
-            <div className="panel-chip bg-white/[0.04] px-2 py-1.5">
-              <div className="text-white/35">Sort</div>
-              <div className="font-mono text-white/75">{info.sortTimeMs.toFixed(1)} ms</div>
+          <div className="grid grid-cols-3 gap-2 border-t border-black/[0.06] dark:border-white/[0.14] pt-2 text-[11px]">
+            <div className="panel-chip bg-black/[0.04] dark:bg-black/[0.20] px-2 py-1.5">
+              <div className="text-[#5a5a5f] dark:text-white/85">Sort</div>
+              <div className="font-mono text-neutral-700 dark:text-white">{info.sortTimeMs.toFixed(1)} ms</div>
             </div>
-            <div className="panel-chip bg-white/[0.04] px-2 py-1.5">
-              <div className="text-white/35">Heap JS</div>
-              <div className="font-mono text-white/75">{formatMB(info.jsHeapMB)}</div>
+            <div className="panel-chip bg-black/[0.04] dark:bg-black/[0.20] px-2 py-1.5">
+              <div className="text-[#5a5a5f] dark:text-white/85">Heap JS</div>
+              <div className="font-mono text-neutral-700 dark:text-white">{formatMB(info.jsHeapMB)}</div>
             </div>
-            <div className="panel-chip bg-white/[0.04] px-2 py-1.5">
-              <div className="text-white/35">API</div>
-              <div className="font-mono text-white/75">
+            <div className="panel-chip bg-black/[0.04] dark:bg-black/[0.20] px-2 py-1.5">
+              <div className="text-[#5a5a5f] dark:text-white/85">API</div>
+              <div className="font-mono text-neutral-700 dark:text-white">
                 {info.backend === 'webgpu' ? 'WebGPU' : info.webgl2 ? 'WebGL2' : 'WebGL'}
               </div>
             </div>
           </div>
         </div>
       ) : (
-        <div className="panel-inner flex items-center gap-2 bg-white/[0.04] px-3 py-3 text-sm text-white/55">
-          <Gauge className="h-4 w-4 text-white/35" />
+        <div className="panel-inner flex items-center gap-2 bg-black/[0.04] dark:bg-black/[0.20] px-3 py-3 text-sm text-neutral-600 dark:text-white/85">
+          <Gauge className="h-4 w-4 text-[#5a5a5f] dark:text-white/85" />
           Carga una escena para medir el objetivo movil.
         </div>
       )}

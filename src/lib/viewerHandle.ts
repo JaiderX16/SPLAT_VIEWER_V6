@@ -79,6 +79,10 @@ export interface SplatViewerProps {
   onLoadStart?: () => void;
   onLoadComplete?: () => void;
   onError?: (error: Error) => void;
+  /** Scene clear color (hex). Follows the UI theme unless the user overrides it. */
+  background?: string;
+  /** UI theme, for chrome the renderer draws itself (editor picture-in-picture). */
+  theme?: 'light' | 'dark';
 }
 
 /** Shared camera framing so both backends open the scene the same way. */

@@ -21,12 +21,14 @@ interface WebGPUSplatViewerProps extends SplatViewerProps {
  * renderer's lifetime; everything performance-sensitive lives outside React.
  */
 const WebGPUSplatViewer = forwardRef<SplatViewerHandle, WebGPUSplatViewerProps>(
-  ({ className = '', onProgress, onLoadStart, onLoadComplete, onError, onUnsupported }, ref) => {
+  ({ className = '', onProgress, onLoadStart, onLoadComplete, onError, onUnsupported, background = '#000000', theme = 'dark' }, ref) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const rendererRef = useRef<SplatRenderer | null>(null);
     const readyRef = useRef<Promise<SplatRenderer> | null>(null);
     const hasSceneRef = useRef(false);
     const callbacks = useRef({ onProgress, onLoadStart, onLoadComplete, onError, onUnsupported });
+    // Latest look, read when the renderer finishes initializing.
+    const lookRef = useRef({ background, theme });
     // Click-to-navigate feedback rings (CSS only, they never touch the GPU).
     const [markers, setMarkers] = useState<Array<{ id: number; x: number; y: number; kind: 'scene' | 'map' }>>([]);
     const markerIdRef = useRef(0);
@@ -49,7 +51,7 @@ const WebGPUSplatViewer = forwardRef<SplatViewerHandle, WebGPUSplatViewerProps>(
           maxPolarAngle: CAMERA.MAX_POLAR_ANGLE,
         },
         fovDeg: 50,
-        background: '#000000',
+        background: lookRef.current.background,
         onError: (error) => callbacks.current.onError?.(error),
         onNavigate: ({ x, y, kind }) => {
           const id = ++markerIdRef.current;
@@ -62,6 +64,8 @@ const WebGPUSplatViewer = forwardRef<SplatViewerHandle, WebGPUSplatViewerProps>(
           throw new DOMException('unmounted', 'AbortError');
         }
         renderer.controls.setPose(CAMERA.INITIAL_POSITION, CAMERA.LOOK_AT);
+        renderer.setBackground(lookRef.current.background);
+        renderer.setTheme(lookRef.current.theme);
         await renderer.start();
         rendererRef.current = renderer;
         return renderer;
@@ -80,6 +84,12 @@ const WebGPUSplatViewer = forwardRef<SplatViewerHandle, WebGPUSplatViewerProps>(
         hasSceneRef.current = false;
       };
     }, []);
+
+    useEffect(() => {
+      lookRef.current = { background, theme };
+      rendererRef.current?.setBackground(background);
+      rendererRef.current?.setTheme(theme);
+    }, [background, theme]);
 
     useImperativeHandle(ref, (): SplatViewerHandle => ({
       backend: 'webgpu',
@@ -190,7 +200,7 @@ const WebGPUSplatViewer = forwardRef<SplatViewerHandle, WebGPUSplatViewerProps>(
     }), []);
 
     return (
-      <div className={`relative w-full h-full overflow-hidden bg-black ${className}`}>
+      <div className={`relative w-full h-full overflow-hidden ${className}`} style={{ background }}>
         <canvas ref={canvasRef} className="block w-full h-full outline-none" />
         {markers.map((m) => (
           <span

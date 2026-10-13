@@ -140,6 +140,7 @@ const GaussianSplatViewer = forwardRef<SplatViewerHandle, GaussianSplatViewerPro
     onLoadStart,
     onLoadComplete,
     onError,
+    background = '#000000',
     cameraUp = CAMERA.UP,
     initialCameraPosition = CAMERA.INITIAL_POSITION,
     initialCameraLookAt = CAMERA.LOOK_AT,
@@ -269,6 +270,14 @@ const GaussianSplatViewer = forwardRef<SplatViewerHandle, GaussianSplatViewerPro
         isRunningRef.current = false;
       };
     }, []);
+
+    // Declared after the creation effect so it runs once the viewer exists.
+    useEffect(() => {
+      const v = viewerRef.current as unknown as ViewerInternalLike | null;
+      if (!v?.renderer) return;
+      v.renderer.setClearColor(new THREE.Color(background), 1);
+      v.forceRenderNextFrame?.();
+    }, [background]);
 
     const runIntroAnimation = (viewer: GaussianSplats3D.Viewer) => {
       const v = viewer as unknown as ViewerInternalLike;
@@ -490,7 +499,7 @@ const GaussianSplatViewer = forwardRef<SplatViewerHandle, GaussianSplatViewerPro
       <div
         ref={containerRef}
         className={`relative w-full h-full overflow-hidden ${className}`}
-        style={{ background: '#000', minWidth: '100%', minHeight: '100%' }}
+        style={{ background, minWidth: '100%', minHeight: '100%' }}
       />
     );
   }

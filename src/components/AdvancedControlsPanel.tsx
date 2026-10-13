@@ -25,17 +25,21 @@ export interface AdvancedControlsPanelProps {
   viewerRef: RefObject<SplatViewerHandle | null>;
   visible: boolean;
   onClose: () => void;
+  /** True when the 3D scene background is light. */
+  sceneLight: boolean;
+  onToggleSceneBackground: () => void;
 }
 
 export default function AdvancedControlsPanel({
   viewerRef,
   visible,
   onClose,
+  sceneLight,
+  onToggleSceneBackground,
 }: AdvancedControlsPanelProps) {
   const [ortho, setOrtho] = useState(false);
   const [fov, setFov] = useState(50);
   const [shDegree, setShDegree] = useState(0);
-  const [lightBg, setLightBg] = useState(false);
   const [grid, setGrid] = useState(false);
   const [axes, setAxes] = useState(false);
   const [supportsSH, setSupportsSH] = useState(true);
@@ -75,12 +79,6 @@ export default function AdvancedControlsPanel({
     viewerRef.current?.setActiveSphericalHarmonicsDegrees(degree);
   }, [viewerRef]);
 
-  const handleToggleBg = useCallback(() => {
-    const next = !lightBg;
-    setLightBg(next);
-    viewerRef.current?.setBackgroundColor(next ? '#e8e8ec' : '#000000');
-  }, [lightBg, viewerRef]);
-
   const handleToggleGrid = useCallback(() => {
     const next = !grid;
     setGrid(next);
@@ -102,7 +100,7 @@ export default function AdvancedControlsPanel({
       className="absolute bottom-4 left-1/2 -translate-x-1/2 z-[400] w-max max-w-[calc(100vw-2rem)]"
     >
       {/* Concentric: 22px radius − 6px padding = 16px → h-8 pills are exactly round. */}
-      <div className="glass flex flex-wrap items-center justify-center gap-x-1 gap-y-1 rounded-[22px] p-1.5 text-white">
+      <div className="glass flex flex-wrap items-center justify-center gap-x-1 gap-y-1 rounded-[22px] p-1.5 text-neutral-900 dark:text-white">
         {/* View presets */}
         <div className="flex items-center gap-1">
           {VIEW_PRESETS.map((preset) => (
@@ -117,7 +115,7 @@ export default function AdvancedControlsPanel({
           ))}
         </div>
 
-        <div className="w-px h-5 bg-white/10" />
+        <div className="w-px h-5 bg-black/[0.06] dark:bg-black/[0.20]" />
 
         {/* Orthographic toggle */}
         <button
@@ -132,7 +130,7 @@ export default function AdvancedControlsPanel({
 
         {/* FOV */}
         <div className="flex items-center gap-2 px-2">
-          <span className="text-[11px] font-mono text-white/50">FOV</span>
+          <span className="text-[11px] font-mono text-[#5a5a5f] dark:text-white/85">FOV</span>
           <Slider
             value={[fov]}
             onValueChange={handleFovChange}
@@ -141,15 +139,15 @@ export default function AdvancedControlsPanel({
             step={1}
             className="w-28"
           />
-          <span className="text-[11px] font-mono text-white/70 w-8 text-right">{fov}°</span>
+          <span className="text-[11px] font-mono text-neutral-600 dark:text-white/85 w-8 text-right">{fov}°</span>
         </div>
 
-        <div className="w-px h-5 bg-white/10" />
+        <div className="w-px h-5 bg-black/[0.06] dark:bg-black/[0.20]" />
 
         {/* SH quality (the WebGPU .splat path has no SH data) */}
         {supportsSH && (
         <div className="flex items-center gap-1">
-          <span className="text-[11px] text-white/50 mr-1">SH</span>
+          <span className="text-[11px] text-[#5a5a5f] dark:text-white/85 mr-1">SH</span>
           {SH_DEGREES.map((deg) => (
             <button
               key={deg}
@@ -163,13 +161,13 @@ export default function AdvancedControlsPanel({
         </div>
         )}
 
-        {supportsSH && <div className="w-px h-5 bg-white/10" />}
+        {supportsSH && <div className="w-px h-5 bg-black/[0.06] dark:bg-black/[0.20]" />}
 
         {/* Distance LOD */}
         {supportsLod && (
           <>
             <div className="flex items-center gap-1" role="group" aria-label="Calidad a distancia (LOD)">
-              <span className="text-[11px] text-white/50 mx-1">LOD</span>
+              <span className="text-[11px] text-[#5a5a5f] dark:text-white/85 mx-1">LOD</span>
               {LOD_OPTIONS.map((option) => (
                 <button
                   key={option.value}
@@ -185,17 +183,18 @@ export default function AdvancedControlsPanel({
                 </button>
               ))}
             </div>
-            <div className="w-px h-5 bg-white/10" />
+            <div className="w-px h-5 bg-black/[0.06] dark:bg-black/[0.20]" />
           </>
         )}
 
         {/* Background */}
         <button
           title="Fondo claro / oscuro"
-          onClick={handleToggleBg}
+          onClick={onToggleSceneBackground}
+          aria-pressed={sceneLight}
           className="pill"
         >
-          {lightBg ? <Moon className="w-3.5 h-3.5" /> : <Sun className="w-3.5 h-3.5" />}
+          {sceneLight ? <Moon className="w-3.5 h-3.5" /> : <Sun className="w-3.5 h-3.5" />}
           Fondo
         </button>
 

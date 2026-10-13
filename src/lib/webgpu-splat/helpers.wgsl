@@ -3,7 +3,7 @@
 
 struct Helpers {
   viewProj: mat4x4f,
-  // x: grid half-size (world units), y: divisions, z: axes length
+  // x: grid half-size (world units), y: divisions, z: axes length, w: light background (0/1)
   params: vec4f,
 }
 
@@ -35,7 +35,10 @@ fn vs_grid(@builtin(vertex_index) vertexIndex: u32) -> VertexOut {
 
   var out: VertexOut;
   out.position = helpers.viewProj * vec4f(p, 1.0);
-  out.color = select(vec4f(0.16, 0.16, 0.18, 0.55), vec4f(0.53, 0.53, 0.56, 0.7), isCenter);
+  let onLight = helpers.params.w > 0.5;
+  let dark = select(vec4f(0.16, 0.16, 0.18, 0.55), vec4f(0.53, 0.53, 0.56, 0.7), isCenter);
+  let light = select(vec4f(0.0, 0.0, 0.0, 0.10), vec4f(0.0, 0.0, 0.0, 0.28), isCenter);
+  out.color = select(dark, light, onLight);
   return out;
 }
 

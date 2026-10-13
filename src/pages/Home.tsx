@@ -7,6 +7,7 @@ import PerformanceBenchmarkPanel, { type PerformanceBenchmarkInfo } from '@/comp
 import AdvancedControlsPanel from '@/components/AdvancedControlsPanel';
 import { estimateGaussianSplatVramMB, scoreBenchmark } from '@/lib/performanceBenchmark';
 import { isWebGPUAvailable } from '@/lib/webgpu-splat/SplatRenderer';
+import { useTheme } from '@/hooks/useTheme';
 import {
   resolveFormat,
   type CameraView,
@@ -36,6 +37,8 @@ import {
   Activity,
   SlidersHorizontal,
   Camera,
+  Sun,
+  Moon,
 } from 'lucide-react';
 
 // The WebGL fallback (three.js + GaussianSplats3D, ~1 MB) is only downloaded
@@ -146,6 +149,12 @@ export default function Home() {
   const [editorView, setEditorView] = useState(false);
 
   const isMobile = useIsMobile();
+  const { theme, toggleTheme } = useTheme();
+  // The 3D scene background follows the UI theme (palette field colors) until
+  // the user flips it from the advanced panel; then it stays as chosen.
+  const [sceneBgOverride, setSceneBgOverride] = useState<'light' | 'dark' | null>(null);
+  const sceneLight = (sceneBgOverride ?? theme) === 'light';
+  const sceneBackground = sceneLight ? '#e9e9ec' : '#000000';
 
   // ─── Backend selection ─────────────────────────────────────────────────────
   useEffect(() => {
@@ -435,15 +444,17 @@ export default function Home() {
     onLoadStart: handleLoadStart,
     onLoadComplete: handleLoadComplete,
     onError: handleError,
+    background: sceneBackground,
+    theme,
   };
 
   return (
-    <div className="relative w-screen h-[100dvh] overflow-hidden bg-black">
+    <div className="relative w-screen h-[100dvh] overflow-hidden bg-[#e9e9ec] dark:bg-black">
       {/* ── Minimal top progress bar ── */}
       {downloading && (
         <div className="absolute top-0 left-0 right-0 z-[100] pointer-events-none">
           <div
-            className="h-[2px] bg-gradient-to-r from-sky-400 via-indigo-400 to-fuchsia-400 shadow-[0_0_10px_rgba(56,189,248,0.6)] transition-[width] duration-300 ease-out"
+            className="h-[2px] bg-gradient-to-r from-sky-600 dark:from-sky-600 via-indigo-500 dark:via-indigo-500 to-fuchsia-600 dark:to-fuchsia-600 shadow-[0_0_8px_rgba(2,132,199,0.35)] dark:shadow-[0_0_10px_rgba(56,189,248,0.6)] transition-[width] duration-300 ease-out"
             style={{ width: `${Math.max(2, progressiveState.percent)}%` }}
           />
         </div>
@@ -477,9 +488,9 @@ export default function Home() {
 
       {/* ── Uploader Dialog ── */}
       <Dialog open={showUploader} onOpenChange={setShowUploader}>
-        <DialogContent className="glass glass-strong panel !rounded-[var(--ui-panel-radius)] text-white max-w-2xl max-h-[90vh] overflow-y-auto p-6">
+        <DialogContent className="glass glass-strong panel !rounded-[var(--ui-panel-radius)] text-neutral-900 dark:text-white max-w-2xl max-h-[90vh] overflow-y-auto p-6">
           <DialogHeader>
-            <DialogTitle className="text-white font-semibold tracking-tight">Cargar escena</DialogTitle>
+            <DialogTitle className="text-neutral-900 dark:text-white font-semibold tracking-tight">Cargar escena</DialogTitle>
           </DialogHeader>
           <SceneUploader onLoadFile={handleLoadFile} onLoadURL={handleLoadURL} isLoading={isLoading} />
         </DialogContent>
@@ -519,7 +530,7 @@ export default function Home() {
             role="group"
             aria-label="Escala de splats"
           >
-            <span className="pill-btn pointer-events-none !text-white/40" aria-hidden>
+            <span className="pill-btn pointer-events-none !text-[#5a5a5f] dark:text-white/85" aria-hidden>
               <Settings2 className="w-4 h-4" />
             </span>
             <button className="pill-btn" onClick={() => applySplatScale(splatScale - 0.05)} aria-label="Reducir escala">
@@ -537,7 +548,7 @@ export default function Home() {
             <button className="pill-btn" onClick={() => applySplatScale(splatScale + 0.05)} aria-label="Aumentar escala">
               <Plus className="w-3.5 h-3.5" />
             </button>
-            <span className="text-white/60 text-xs font-mono w-10 pr-3 text-right tabular-nums">{splatScale.toFixed(2)}</span>
+            <span className="text-neutral-600 dark:text-white/85 text-xs font-mono w-10 pr-3 text-right tabular-nums">{splatScale.toFixed(2)}</span>
           </div>
         )}
       </main>
@@ -547,6 +558,14 @@ export default function Home() {
         aria-label="Herramientas del visor"
         className="absolute top-4 right-4 md:top-6 md:right-6 z-[25000] glass dock flex-col items-center"
       >
+        <button
+          className="pill-btn"
+          onClick={toggleTheme}
+          title={theme === 'dark' ? 'Modo claro' : 'Modo oscuro'}
+          aria-label={theme === 'dark' ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'}
+        >
+          {theme === 'dark' ? <Sun className="w-4 h-4" strokeWidth={1.5} /> : <Moon className="w-4 h-4" strokeWidth={1.5} />}
+        </button>
         <button className="pill-btn" onClick={handleResetCamera} title="Enfocar escena (0)" aria-label="Enfocar escena">
           <Crosshair className="w-4 h-4" />
         </button>
@@ -625,14 +644,20 @@ export default function Home() {
 
       {/* ── Editor view frame: matches the GPU picture-in-picture rect (30%, min 120px, 12px margin) ── */}
       {editorView && (
-        <div className="absolute bottom-3 right-3 w-[30%] h-[30%] min-w-[120px] min-h-[120px] pointer-events-none border border-cyan-400/40 rounded-[4px] z-[200]">
-          <span className="absolute -top-8 right-0 glass rounded-full px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-cyan-200/90 whitespace-nowrap">
+        <div className="absolute bottom-3 right-3 w-[30%] h-[30%] min-w-[120px] min-h-[120px] pointer-events-none border border-cyan-600 dark:border-cyan-300/60 rounded-[4px] z-[200]">
+          <span className="absolute -top-8 right-0 glass rounded-full px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-cyan-800 dark:text-cyan-200 whitespace-nowrap">
             {backend === 'webgpu' ? 'Vista editor · clic para navegar' : 'Vista editor'}
           </span>
         </div>
       )}
 
-      <AdvancedControlsPanel viewerRef={viewerRef} visible={advancedOpen} onClose={() => setAdvancedOpen(false)} />
+      <AdvancedControlsPanel
+        viewerRef={viewerRef}
+        visible={advancedOpen}
+        onClose={() => setAdvancedOpen(false)}
+        sceneLight={sceneLight}
+        onToggleSceneBackground={() => setSceneBgOverride(sceneLight ? 'dark' : 'light')}
+      />
     </div>
   );
 }

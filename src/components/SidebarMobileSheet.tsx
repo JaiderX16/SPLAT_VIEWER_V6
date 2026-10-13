@@ -145,7 +145,7 @@ const ClearButton = ({ onClear }: { onClear: (e: React.MouseEvent) => void }) =>
     type="button"
     aria-label="Limpiar búsqueda"
     onClick={onClear}
-    className="p-1 rounded-full hover:bg-white/10 text-white/60 transition-colors"
+    className="p-1 rounded-full hover:bg-black/[0.06] dark:hover:bg-black/[0.14] text-neutral-600 dark:text-white/85 transition-colors"
   >
     <X size={16} />
   </button>
@@ -209,7 +209,7 @@ const SearchBar = ({
           isExpanded ? 'cursor-text' : 'cursor-pointer'
         } ${
           isExpanded
-            ? 'bg-white/10 rounded-full px-4 h-14'
+            ? 'bg-black/[0.06] dark:bg-black/[0.20] rounded-full px-4 h-14'
             : 'bg-transparent rounded-full px-6 h-14'
         }`}
       >
@@ -219,7 +219,7 @@ const SearchBar = ({
           aria-label={isExpanded ? 'Cerrar búsqueda' : 'Buscar'}
           className={`transition-all duration-700 flex items-center justify-center shrink-0 ${
             isExpanded ? 'pr-2' : 'pr-3'
-          } text-white/60`}
+          } text-neutral-600 dark:text-white/85`}
           onClick={handleBackClick}
         >
           {isExpanded ? <ArrowLeft size={20} /> : <Search size={22} />}
@@ -241,8 +241,8 @@ const SearchBar = ({
             !isExpanded ? 'pointer-events-none select-none' : ''
           } ${
             isExpanded
-              ? 'text-white placeholder:text-white/40'
-              : 'text-white/60 placeholder:text-white/40'
+              ? 'text-neutral-900 dark:text-white placeholder:text-[#5a5a5f] dark:placeholder:text-white/70'
+              : 'text-neutral-600 dark:text-white/85 placeholder:text-[#5a5a5f] dark:placeholder:text-white/70'
           }`}
         />
 
@@ -255,7 +255,7 @@ const SearchBar = ({
           {value ? (
             <ClearButton onClear={handleClear} />
           ) : (
-            <Search size={18} className="text-white/40" aria-hidden />
+            <Search size={18} className="text-[#5a5a5f] dark:text-white/85" aria-hidden />
           )}
         </div>
       </div>
@@ -282,7 +282,7 @@ const DragHandle = ({ isVisible, onPointerDown, onPointerMove, onPointerUp }: Dr
     onPointerUp={onPointerUp}
     onPointerCancel={onPointerUp}
   >
-    <div className="w-12 h-[5px] bg-white/20 rounded-full pointer-events-none" />
+    <div className="w-12 h-[5px] bg-black/[0.10] dark:bg-white/[0.20] rounded-full pointer-events-none" />
   </div>
 );
 
@@ -302,33 +302,33 @@ const ModelItem = ({ model, index, isActive, onSelect }: ModelItemProps) => {
       className={`
         w-full flex items-center gap-3 px-3 py-3 rounded-2xl transition-all duration-200 text-left
         ${isActive
-          ? 'bg-white/[0.08] border border-white/[0.08]'
-          : 'hover:bg-white/[0.04] border border-transparent'
+          ? 'bg-black/[0.05] dark:bg-black/[0.20] border border-black/[0.06] dark:border-white/[0.14]'
+          : 'hover:bg-black/[0.04] dark:hover:bg-black/[0.14] border border-transparent'
         }
       `}
     >
       <div
         className={`
           w-8 h-8 rounded-full flex items-center justify-center text-[10px] font-bold
-          ${isActive ? 'bg-white/10 text-white' : 'bg-white/5 text-white/30'}
+          ${isActive ? 'bg-black/[0.06] dark:bg-black/[0.20] text-neutral-900 dark:text-white' : 'bg-black/[0.04] dark:bg-black/[0.20] text-[#5a5a5f] dark:text-white/85'}
         `}
       >
         {num}
       </div>
       <div className="flex-1 min-w-0">
         <div
-          className={`text-sm font-medium truncate ${isActive ? 'text-white' : 'text-white/60'}`}
+          className={`text-sm font-medium truncate ${isActive ? 'text-neutral-900 dark:text-white' : 'text-neutral-600 dark:text-white/85'}`}
         >
           {model.name}
         </div>
-        <div className="text-[10px] text-white/25 font-medium uppercase tracking-wider mt-0.5">
+        <div className="text-[10px] text-[#5a5a5f] dark:text-white/85 font-medium uppercase tracking-wider mt-0.5">
           Splat
         </div>
       </div>
       <div
         className={`
           w-1.5 h-1.5 rounded-full
-          ${isActive ? 'bg-white shadow-[0_0_6px_rgba(255,255,255,0.5)]' : 'bg-white/10'}
+          ${isActive ? 'bg-neutral-900 dark:bg-white dark:shadow-[0_0_6px_rgba(255,255,255,0.5)]' : 'bg-black/[0.06] dark:bg-black/[0.20]'}
         `}
       />
     </button>
@@ -466,7 +466,7 @@ const SidebarMobileSheet = ({
       role="dialog"
       aria-modal="true"
       aria-label="Scene library"
-      className={`absolute left-1/2 z-[900] bg-[#111113]/95 backdrop-blur-[28px] border border-white/[0.06] overflow-hidden shadow-[0_-10px_50px_rgba(0,0,0,0.5)] flex flex-col pointer-events-auto ${transitionClass} ${className}`}
+      className={`absolute left-1/2 z-[900] bg-[#e8e8ec]/[0.86] dark:bg-[#1e1e20]/[0.78] backdrop-blur-[28px] border border-black/[0.06] dark:border-white/[0.14] overflow-hidden shadow-[0_-10px_50px_rgba(0,0,0,0.5)] flex flex-col pointer-events-auto ${transitionClass} ${className}`}
       style={{
         bottom: `${geometry.bottom}px`,
         height: `${currentH}px`,
@@ -510,7 +510,7 @@ const SidebarMobileSheet = ({
       >
         {/* Header */}
         <div className="mb-3 px-1">
-          <span className="text-[10px] font-bold tracking-[0.15em] uppercase text-white/30">
+          <span className="text-[10px] font-bold tracking-[0.15em] uppercase text-[#5a5a5f] dark:text-white/85">
             Scene Library
           </span>
         </div>
@@ -527,7 +527,7 @@ const SidebarMobileSheet = ({
             />
           ))}
           {q && filteredModels.length === 0 && (
-            <div className="text-center py-8 text-white/30 text-sm">
+            <div className="text-center py-8 text-[#5a5a5f] dark:text-white/85 text-sm">
               No scenes found
             </div>
           )}
@@ -540,7 +540,7 @@ const SidebarMobileSheet = ({
               onUpload?.();
               onSheetStateChange('idle');
             }}
-            className="w-full flex items-center justify-center gap-2 h-12 rounded-full bg-white/5 border border-white/[0.08] text-white/50 hover:text-white hover:bg-white/10 hover:border-white/15 transition-all duration-150"
+            className="w-full flex items-center justify-center gap-2 h-12 rounded-full bg-black/[0.04] dark:bg-black/[0.20] border border-black/[0.06] dark:border-white/[0.14] text-[#5a5a5f] dark:text-white/85 hover:text-neutral-900 dark:hover:text-white hover:bg-black/[0.06] dark:hover:bg-black/[0.14] hover:border-black/[0.10] dark:hover:border-white/[0.28] transition-all duration-150"
           >
             <Upload className="w-4 h-4" />
             <span className="text-xs font-semibold tracking-wider uppercase">

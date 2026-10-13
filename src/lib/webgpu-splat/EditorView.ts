@@ -48,8 +48,17 @@ export interface PixelRect {
  * is visible). Clicks inside it are turned into world-space rays for
  * minimap-style navigation.
  */
+/** Editor chrome colors per UI theme (references/palette.md, renderer floats). */
+const EDITOR_COLORS = {
+  // Light = frost glass (pale overlay, cyan-600 frustum, dark grid lines).
+  light: { background: [0.878, 0.878, 0.894, 1], frustum: [0.031, 0.569, 0.698, 1], darkGridLines: 1 },
+  // Dark = smoke glass (graphite overlay, cyan-300 frustum, light grid lines).
+  dark: { background: [0.4, 0.4, 0.41, 1], frustum: [0.4, 0.91, 0.976, 1], darkGridLines: 0 },
+} as const;
+
 export class EditorView {
   visible = false;
+  theme: 'light' | 'dark' = 'dark';
   /** Overview camera orbits the world origin at this distance (wheel-adjustable). */
   private distance = 8;
   private readonly up: Vec3;
@@ -140,9 +149,11 @@ export class EditorView {
     const frustum = frustumLines(main3, main);
     const gizmo = cameraGizmo(main3, this.distance * 0.035);
 
-    this.gridDraw.set({ helpers: { viewProj: this.viewProj, params: [GRID_HALF_SIZE, GRID_DIVISIONS, 1, 0] } });
-    this.backgroundDraw.set({ overlay: { viewProj: this.viewProj, color: [0.047, 0.051, 0.071, 1], points: frustum } });
-    this.frustumDraw.set({ overlay: { viewProj: this.viewProj, color: [0.133, 0.827, 0.933, 0.95], points: frustum } });
+    const colors = EDITOR_COLORS[this.theme];
+    const light = colors.darkGridLines;
+    this.gridDraw.set({ helpers: { viewProj: this.viewProj, params: [GRID_HALF_SIZE, GRID_DIVISIONS, 1, light] } });
+    this.backgroundDraw.set({ overlay: { viewProj: this.viewProj, color: [...colors.background], points: frustum } });
+    this.frustumDraw.set({ overlay: { viewProj: this.viewProj, color: [...colors.frustum], points: frustum } });
     this.gizmoDraw.set({ overlay: { viewProj: this.viewProj, color: [0.98, 0.8, 0.08, 1], points: gizmo } });
     this.splatDraw.set({
       camera: {
