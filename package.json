@@ -57,6 +57,7 @@
     "tailwind-merge": "^3.4.0",
     "three": "^0.184.0",
     "vaul": "^1.1.2",
+    "vgpu": "^0.6.0",
     "zod": "^4.3.5"
   },
   "devDependencies": {
@@ -64,7 +65,9 @@
     "@types/node": "^24.10.1",
     "@types/react": "^19.2.5",
     "@types/react-dom": "^19.2.3",
+    "@vgpu/wgsl": "^0.6.0",
     "@vitejs/plugin-react": "^5.1.1",
+    "@webgpu/types": "^0.1.74",
     "autoprefixer": "^10.4.23",
     "eslint": "^9.39.1",
     "eslint-plugin-react-hooks": "^7.0.1",

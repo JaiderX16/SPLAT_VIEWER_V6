@@ -23,8 +23,8 @@ export const ProgressiveLoader: React.FC<ProgressiveLoaderProps> = ({ state }) =
   const isProcessing = state.status === 'processing';
 
   return (
-    <div className="absolute inset-x-0 bottom-6 z-50 flex items-center justify-center pointer-events-none">
-      <div className="flex items-center gap-3 h-14 px-5 bg-black/80 backdrop-blur-md border border-white/10 rounded-full shadow-2xl pointer-events-auto min-w-[360px] max-w-[90vw]">
+    <div className="absolute inset-x-0 bottom-24 md:bottom-6 z-50 flex items-center justify-center pointer-events-none" role="status" aria-live="polite">
+      <div className="glass flex items-center gap-3 h-12 pl-4 pr-5 rounded-full pointer-events-auto min-w-[300px] max-w-[90vw]">
         {isError ? (
           <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
         ) : isDone ? (
@@ -32,7 +32,7 @@ export const ProgressiveLoader: React.FC<ProgressiveLoaderProps> = ({ state }) =
         ) : isProcessing ? (
           <Loader2 className="w-4 h-4 text-amber-400 animate-spin shrink-0" />
         ) : (
-          <Download className="w-4 h-4 text-blue-400 animate-bounce shrink-0" />
+          <Download className="w-4 h-4 text-sky-300 shrink-0" />
         )}
 
         <span className={`text-sm font-medium truncate ${
@@ -42,10 +42,10 @@ export const ProgressiveLoader: React.FC<ProgressiveLoaderProps> = ({ state }) =
         </span>
 
         <div className="flex-1 min-w-[80px] max-w-[140px]">
-          <Progress value={state.percent} className="h-1.5 bg-white/10" />
+          <Progress value={state.percent} className="h-1 rounded-full bg-white/10" />
         </div>
 
-        <span className="text-xs text-white/60 font-mono shrink-0 w-12 text-right">
+        <span className="text-xs text-white/60 font-mono shrink-0 w-14 text-right tabular-nums">
           {state.percentLabel}
         </span>
       </div>

@@ -1,12 +1,19 @@
-import { useRef, useState, useCallback, useEffect } from 'react';
-import * as GaussianSplats3D from '@mkkellogg/gaussian-splats-3d';
-import GaussianSplatViewer, { type GaussianSplatViewerHandle, type CameraView } from '@/components/GaussianSplatViewer';
+import { lazy, Suspense, useRef, useState, useCallback, useEffect } from 'react';
+import WebGPUSplatViewer from '@/components/WebGPUSplatViewer';
 import ProgressiveLoader, { type ProgressiveLoadState } from '@/components/ProgressiveLoader';
 import SceneUploader, { type LoadOptions } from '@/components/SceneUploader';
-import InfoPanel from '@/components/InfoPanel';
+import InfoPanel, { type SceneInfo } from '@/components/InfoPanel';
 import PerformanceBenchmarkPanel, { type PerformanceBenchmarkInfo } from '@/components/PerformanceBenchmarkPanel';
 import AdvancedControlsPanel from '@/components/AdvancedControlsPanel';
 import { estimateGaussianSplatVramMB, scoreBenchmark } from '@/lib/performanceBenchmark';
+import { isWebGPUAvailable } from '@/lib/webgpu-splat/SplatRenderer';
+import {
+  resolveFormat,
+  type CameraView,
+  type RenderBackend,
+  type SplatViewerHandle,
+  type ViewerStats,
+} from '@/lib/viewerHandle';
 import Sidebar from '@/components/Sidebar';
 import SidebarMobileSheet, { type SheetState } from '@/components/SidebarMobileSheet';
 import {
@@ -30,6 +37,10 @@ import {
   SlidersHorizontal,
   Camera,
 } from 'lucide-react';
+
+// The WebGL fallback (three.js + GaussianSplats3D, ~1 MB) is only downloaded
+// when WebGPU is unavailable or a non-.splat format is opened.
+const GaussianSplatViewer = lazy(() => import('@/components/GaussianSplatViewer'));
 
 const DEMO_SCENES: Array<{ name: string; url: string; format: LoadOptions['format'] }> = [
   {
@@ -69,18 +80,6 @@ const DEMO_SCENES: Array<{ name: string; url: string; format: LoadOptions['forma
   },
 ];
 
-interface SceneInfo {
-  splatCount: number;
-  splatRenderCount: number;
-  fps: number | null;
-  cameraPosition: string;
-  cameraLookAt: string;
-  cameraUp: string;
-  sortTime: number;
-  splatScale: number;
-  pointCloudMode: boolean;
-}
-
 function useIsMobile() {
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
   useEffect(() => {
@@ -92,62 +91,10 @@ function useIsMobile() {
   return isMobile;
 }
 
-interface BrowserCapabilities {
-  webgl2: boolean;
-  webgpu: boolean;
-}
-
 interface PerformanceWithMemory extends Performance {
   memory?: {
     usedJSHeapSize?: number;
   };
-}
-
-interface Vector3Like {
-  x: number;
-  y: number;
-  z: number;
-}
-
-interface RendererLike {
-  domElement?: unknown;
-  getPixelRatio?: () => number;
-  info?: {
-    render?: {
-      calls?: number;
-    };
-  };
-}
-
-interface SplatMeshLike {
-  renderer?: RendererLike;
-  getSplatCount?: () => number;
-  getSplatScale?: () => number;
-  getPointCloudModeEnabled?: () => boolean;
-}
-
-interface RawViewerLike {
-  renderer?: RendererLike;
-  webGLRenderer?: RendererLike;
-  threeRenderer?: RendererLike;
-  splatMesh?: SplatMeshLike;
-  camera?: {
-    position?: Vector3Like;
-    up?: Vector3Like;
-  };
-  controls?: {
-    target?: Vector3Like;
-  };
-  currentFPS?: number | null;
-  lastSortTime?: number;
-  splatRenderCount?: number;
-}
-
-function readBrowserCapabilities(): BrowserCapabilities {
-  const canvas = document.createElement('canvas');
-  const webgl2 = Boolean(canvas.getContext('webgl2'));
-  const webgpu = Boolean((navigator as Navigator & { gpu?: unknown }).gpu);
-  return { webgl2, webgpu };
 }
 
 function readJSHeapMB(): number | null {
@@ -155,21 +102,28 @@ function readJSHeapMB(): number | null {
   return typeof bytes === 'number' ? Math.round((bytes / 1024 / 1024) * 10) / 10 : null;
 }
 
-function getRenderer(rawViewer: RawViewerLike | null): RendererLike | null {
-  return rawViewer?.renderer ?? rawViewer?.webGLRenderer ?? rawViewer?.threeRenderer ?? rawViewer?.splatMesh?.renderer ?? null;
+const hasWebGL2 = (() => {
+  let cached: boolean | null = null;
+  return () => (cached ??= Boolean(document.createElement('canvas').getContext('webgl2')));
+})();
+
+const fmt3 = (v: [number, number, number] | null) => (v ? v.map((n) => n.toFixed(2)).join(', ') : 'N/A');
+
+/** `?renderer=webgl` forces the fallback (handy for A/B benchmarking). */
+function forcedBackend(): RenderBackend | null {
+  const value = new URLSearchParams(window.location.search).get('renderer');
+  return value === 'webgl' || value === 'webgpu' ? value : null;
 }
 
-function getRendererCanvas(renderer: RendererLike | null): HTMLCanvasElement | null {
-  if (renderer?.domElement instanceof HTMLCanvasElement) return renderer.domElement;
-  return document.querySelector<HTMLCanvasElement>('canvas');
-}
+type BackendState = RenderBackend | 'detecting';
 
 export default function Home() {
-  const viewerRef = useRef<GaussianSplatViewerHandle>(null);
-  const infoIntervalRef = useRef<ReturnType<typeof setInterval>>(null);
+  const viewerRef = useRef<SplatViewerHandle | null>(null);
+  const viewerWaitersRef = useRef<Array<{ backend: RenderBackend; resolve: (h: SplatViewerHandle) => void }>>([]);
   const activeObjectUrlRef = useRef<string | null>(null);
-  const browserCapabilitiesRef = useRef<BrowserCapabilities | null>(null);
+  const webgpuAvailableRef = useRef(false);
 
+  const [backend, setBackend] = useState<BackendState>('detecting');
   const [progressiveState, setProgressiveState] = useState<ProgressiveLoadState>({
     percent: 0,
     percentLabel: '0%',
@@ -193,161 +147,145 @@ export default function Home() {
 
   const isMobile = useIsMobile();
 
+  // ─── Backend selection ─────────────────────────────────────────────────────
+  useEffect(() => {
+    let cancelled = false;
+    void isWebGPUAvailable().then((available) => {
+      if (cancelled) return;
+      webgpuAvailableRef.current = available;
+      const forced = forcedBackend();
+      setBackend(forced === 'webgl' || !available ? 'webgl' : 'webgpu');
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  /** Callback ref: resolves anyone waiting for a viewer of a given backend. */
+  const attachViewer = useCallback((handle: SplatViewerHandle | null) => {
+    viewerRef.current = handle;
+    if (!handle) return;
+    const waiters = viewerWaitersRef.current;
+    viewerWaitersRef.current = waiters.filter((w) => {
+      if (w.backend !== handle.backend) return true;
+      // Let the viewer's mount effect run before it is used.
+      requestAnimationFrame(() => w.resolve(handle));
+      return false;
+    });
+  }, []);
+
+  const getViewer = useCallback((wanted: RenderBackend): Promise<SplatViewerHandle> => {
+    const current = viewerRef.current;
+    if (current?.backend === wanted) return Promise.resolve(current);
+    return new Promise((resolve) => {
+      viewerWaitersRef.current.push({ backend: wanted, resolve });
+      setBackend(wanted);
+    });
+  }, []);
+
+  const handleWebGPUUnsupported = useCallback((error: Error) => {
+    console.warn('WebGPU no disponible, usando WebGL:', error);
+    webgpuAvailableRef.current = false;
+    setBackend('webgl');
+  }, []);
+
   const revokeActiveObjectUrl = useCallback(() => {
     if (!activeObjectUrlRef.current) return;
     URL.revokeObjectURL(activeObjectUrlRef.current);
     activeObjectUrlRef.current = null;
   }, []);
 
+  // ─── Metrics ───────────────────────────────────────────────────────────────
   const updateSceneInfo = useCallback(() => {
-    const viewer = viewerRef.current;
-    if (!viewer) return;
-    const rawViewer = viewer.viewer as RawViewerLike | null;
-    if (!rawViewer) return;
+    const stats: ViewerStats | null = viewerRef.current?.getStats() ?? null;
+    if (!stats) return;
 
-    const mesh = rawViewer.splatMesh;
-    const camera = rawViewer.camera;
-    const controls = rawViewer.controls;
-
-    if (!mesh || !camera) return;
-
-    const splatCount = mesh.getSplatCount?.() || 0;
-    const splatRenderCount = rawViewer.splatRenderCount || 0;
-    const activeSplats = splatRenderCount > 0 ? splatRenderCount : splatCount;
-    const fps = typeof rawViewer.currentFPS === 'number' ? rawViewer.currentFPS : null;
-    const sortTimeMs = typeof rawViewer.lastSortTime === 'number' ? rawViewer.lastSortTime : 0;
-    const renderer = getRenderer(rawViewer);
-    const canvas = getRendererCanvas(renderer);
-    const rendererPixelRatio = typeof renderer?.getPixelRatio === 'function' ? renderer.getPixelRatio() : null;
-    const renderPixelRatio = canvas && canvas.clientWidth > 0
-      ? Math.round((canvas.width / canvas.clientWidth) * 10) / 10
-      : rendererPixelRatio;
-    const canvasPixels = canvas ? canvas.width * canvas.height : null;
-    const renderSize = canvas ? `${canvas.width}x${canvas.height}` : 'N/A';
-    const rawDrawCalls = renderer?.info?.render?.calls;
-    const drawCalls = typeof rawDrawCalls === 'number' ? rawDrawCalls : null;
-    const estimatedVramMB = estimateGaussianSplatVramMB({
-      totalSplats: splatCount,
-      activeSplats,
-      canvasPixels,
-    });
-    const capabilities = browserCapabilitiesRef.current ?? readBrowserCapabilities();
-    browserCapabilitiesRef.current = capabilities;
+    const activeSplats = stats.renderCount > 0 ? stats.renderCount : stats.splatCount;
+    const canvasPixels = stats.renderWidth && stats.renderHeight ? stats.renderWidth * stats.renderHeight : null;
+    // WebGPU reports its exact buffer sizes; add color target + swapchain (≈8 B/px).
+    const estimatedVramMB = stats.gpuBufferMB !== null
+      ? Math.round((stats.gpuBufferMB + ((canvasPixels ?? 0) * 8) / 1048576) * 10) / 10
+      : estimateGaussianSplatVramMB({ totalSplats: stats.splatCount, activeSplats, canvasPixels });
 
     setSceneInfo({
-      splatCount,
-      splatRenderCount,
-      fps,
-      cameraPosition: camera.position
-        ? `${camera.position.x.toFixed(2)}, ${camera.position.y.toFixed(2)}, ${camera.position.z.toFixed(2)}`
-        : 'N/A',
-      cameraLookAt: controls?.target
-        ? `${controls.target.x.toFixed(2)}, ${controls.target.y.toFixed(2)}, ${controls.target.z.toFixed(2)}`
-        : 'N/A',
-      cameraUp: camera.up
-        ? `${camera.up.x.toFixed(2)}, ${camera.up.y.toFixed(2)}, ${camera.up.z.toFixed(2)}`
-        : 'N/A',
-      sortTime: sortTimeMs,
-      splatScale: mesh.getSplatScale?.() || 1.0,
-      pointCloudMode: mesh.getPointCloudModeEnabled?.() || false,
+      splatCount: stats.splatCount,
+      splatRenderCount: stats.renderCount,
+      fps: stats.fps,
+      cameraPosition: fmt3(stats.cameraPosition),
+      cameraLookAt: fmt3(stats.cameraTarget),
+      cameraUp: fmt3(stats.cameraUp),
+      sortTime: stats.sortTimeMs,
+      splatScale: stats.splatScale,
+      pointCloudMode: stats.pointCloudMode,
+      backend: stats.backend,
     });
 
     setBenchmarkInfo({
-      fps,
+      fps: stats.fps,
       estimatedVramMB,
       jsHeapMB: readJSHeapMB(),
-      totalSplats: splatCount,
+      totalSplats: stats.splatCount,
       activeSplats,
-      drawCalls,
-      sortTimeMs,
+      drawCalls: stats.drawCalls,
+      sortTimeMs: stats.sortTimeMs,
       devicePixelRatio: window.devicePixelRatio || 1,
-      renderPixelRatio,
-      renderSize,
-      webgl2: capabilities.webgl2,
-      webgpu: capabilities.webgpu,
+      renderPixelRatio: stats.renderPixelRatio,
+      renderSize: stats.renderWidth ? `${stats.renderWidth}x${stats.renderHeight}` : 'N/A',
+      webgl2: hasWebGL2(),
+      webgpu: webgpuAvailableRef.current,
+      backend: stats.backend,
       score: scoreBenchmark({
-        fps,
+        fps: stats.fps,
         estimatedVramMB,
         activeSplats,
-        drawCalls,
-        renderPixelRatio,
+        drawCalls: stats.drawCalls,
+        renderPixelRatio: stats.renderPixelRatio,
       }),
     });
   }, []);
 
-  // Optimized metric polling: only runs when a scene is loaded and at least one panel is visible
+  // Metric polling only runs when a scene is loaded and a panel is visible.
   const panelsVisible = infoVisible || benchmarkVisible;
   useEffect(() => {
-    if (!hasScene || !panelsVisible) {
-      if (infoIntervalRef.current) {
-        clearInterval(infoIntervalRef.current);
-        infoIntervalRef.current = null;
-      }
-      return;
-    }
+    if (!hasScene || !panelsVisible) return;
     updateSceneInfo();
     const interval = setInterval(updateSceneInfo, 250);
-    infoIntervalRef.current = interval;
-    return () => {
-      clearInterval(interval);
-      infoIntervalRef.current = null;
-    };
+    return () => clearInterval(interval);
   }, [hasScene, panelsVisible, updateSceneInfo]);
 
-  useEffect(() => {
-    return () => {
-      if (infoIntervalRef.current) {
-        clearInterval(infoIntervalRef.current);
-        infoIntervalRef.current = null;
-      }
-      revokeActiveObjectUrl();
-    };
-  }, [revokeActiveObjectUrl]);
+  useEffect(() => revokeActiveObjectUrl, [revokeActiveObjectUrl]);
 
+  // ─── Loading callbacks ─────────────────────────────────────────────────────
   const handleProgress = useCallback((percent: number, percentLabel: string, status: number) => {
     let stateStatus: ProgressiveLoadState['status'] = 'downloading';
-    let message = `Downloading: ${percentLabel}`;
+    let message = `Descargando: ${percentLabel}`;
 
     if (status === 1) {
       stateStatus = 'processing';
-      message = 'Processing splats...';
+      message = 'Procesando splats...';
     } else if (status === 2) {
       stateStatus = 'done';
-      message = 'Complete!';
+      message = '¡Listo!';
     }
     if (percent >= 100 && status === 0) {
-      message = 'Download complete!';
+      message = 'Descarga completa';
     }
 
-    setProgressiveState({
-      percent,
-      percentLabel,
-      status: stateStatus,
-      message,
-    });
+    setProgressiveState({ percent, percentLabel, status: stateStatus, message });
   }, []);
 
   const handleLoadStart = useCallback(() => {
     setIsLoading(true);
-    setProgressiveState({
-      percent: 0,
-      percentLabel: '0%',
-      status: 'downloading',
-      message: 'Starting download...',
-    });
+    setHasScene(true);
+    setProgressiveState({ percent: 0, percentLabel: '0%', status: 'downloading', message: 'Iniciando descarga...' });
   }, []);
 
   const handleLoadComplete = useCallback(() => {
     setIsLoading(false);
     setHasScene(true);
-    setProgressiveState({
-      percent: 100,
-      percentLabel: '100%',
-      status: 'done',
-      message: 'Scene loaded!',
-    });
+    setProgressiveState({ percent: 100, percentLabel: '100%', status: 'done', message: 'Escena cargada' });
     setTimeout(() => {
-      setProgressiveState(prev => (prev.status === 'done' ? { ...prev, status: 'idle', message: '' } : prev));
+      setProgressiveState((prev) => (prev.status === 'done' ? { ...prev, status: 'idle', message: '' } : prev));
     }, 2000);
   }, []);
 
@@ -359,57 +297,61 @@ export default function Home() {
       percent: 0,
       percentLabel: '0%',
       status: 'error',
-      message: error.message || 'Failed to load scene',
+      message: error.message || 'No se pudo cargar la escena',
     });
   }, []);
 
-  const loadScene = useCallback(async (url: string, options?: Partial<LoadOptions>) => {
-    if (!viewerRef.current) return;
-    if (isLoading) return; // Prevent concurrent overlapping loads
+  const loadScene = useCallback(async (url: string, options?: Partial<LoadOptions>, nameHint = url) => {
+    if (isLoading || backend === 'detecting') return; // no overlapping loads
 
-    // Remove previous scene if one is already loaded
+    // The WebGPU renderer handles .splat; other formats use the WebGL fallback.
+    const format = resolveFormat(options?.format, nameHint);
+    const wanted: RenderBackend =
+      webgpuAvailableRef.current && forcedBackend() !== 'webgl' && (format === 'splat' || format === 'auto')
+        ? 'webgpu'
+        : 'webgl';
+
     try {
-      if (viewerRef.current.getSceneCount() > 0) {
-        await viewerRef.current.removeSplatScene(0);
-        setHasScene(false);
-        setSceneInfo(null);
-        setBenchmarkInfo(null);
+      const previous = viewerRef.current;
+      if (previous && previous.getSceneCount() > 0) {
+        await previous.removeSplatScene(0);
       }
     } catch (e) {
       console.error('Error removing previous scene:', e);
     }
-
+    setHasScene(false);
+    setSceneInfo(null);
+    setBenchmarkInfo(null);
     setActiveScene(url);
+
     try {
-      let formatEnum: GaussianSplats3D.SceneFormat | undefined;
-      if (options?.format && options.format !== 'auto') {
-        switch (options.format) {
-          case 'ply': formatEnum = GaussianSplats3D.SceneFormat.Ply; break;
-          case 'splat': formatEnum = GaussianSplats3D.SceneFormat.Splat; break;
-          case 'ksplat': formatEnum = GaussianSplats3D.SceneFormat.KSplat; break;
-          case 'spz': formatEnum = GaussianSplats3D.SceneFormat.Spz; break;
-        }
-      }
-      await viewerRef.current.addSplatScene(url, {
+      const viewer = await getViewer(wanted);
+      // Frame the camera first: the viewer's cinematic entrance starts from here.
+      viewer.resetCamera();
+      viewer.setEditorViewVisible(editorView);
+      await viewer.addSplatScene(url, {
         splatAlphaRemovalThreshold: options?.splatAlphaRemovalThreshold ?? 1,
         progressiveLoad: options?.progressiveLoad ?? true,
         position: options?.position,
         rotation: options?.rotation,
         scale: options?.scale,
-        format: formatEnum,
+        format,
       });
-      viewerRef.current?.resetCamera();
+      // GaussianSplats3D only accepts these once a scene exists.
+      if (pointCloudMode) viewer.setPointCloudMode(true);
+      if (splatScale !== 1) viewer.setSplatScale(splatScale);
     } catch (e) {
       handleError(e instanceof Error ? e : new Error(String(e)));
     }
-  }, [handleError, isLoading]);
+  }, [backend, editorView, getViewer, handleError, isLoading, pointCloudMode, splatScale]);
 
   const handleLoadFile = useCallback(async (file: File, options: LoadOptions) => {
     const url = URL.createObjectURL(file);
     revokeActiveObjectUrl();
     activeObjectUrlRef.current = url;
+    setShowUploader(false);
     try {
-      await loadScene(url, options);
+      await loadScene(url, options, file.name);
     } finally {
       if (activeObjectUrlRef.current === url) {
         URL.revokeObjectURL(url);
@@ -420,6 +362,7 @@ export default function Home() {
 
   const handleLoadURL = useCallback(async (url: string, options: LoadOptions) => {
     revokeActiveObjectUrl();
+    setShowUploader(false);
     await loadScene(url, options);
   }, [loadScene, revokeActiveObjectUrl]);
 
@@ -427,8 +370,10 @@ export default function Home() {
     if (!viewerRef.current) return;
     await viewerRef.current.removeSplatScene(0);
     setHasScene(false);
+    setIsLoading(false);
     setSceneInfo(null);
     setBenchmarkInfo(null);
+    setProgressiveState((prev) => ({ ...prev, status: 'idle', message: '' }));
     revokeActiveObjectUrl();
     setActiveScene('');
   }, [revokeActiveObjectUrl]);
@@ -439,10 +384,10 @@ export default function Home() {
     viewerRef.current?.setPointCloudMode(next);
   }, [pointCloudMode]);
 
-  const handleSplatScaleChange = useCallback((value: number[]) => {
-    const scale = value[0];
-    setSplatScale(scale);
-    viewerRef.current?.setSplatScale(scale);
+  const applySplatScale = useCallback((scale: number) => {
+    const clamped = Math.min(3, Math.max(0.1, Math.round(scale * 100) / 100));
+    setSplatScale(clamped);
+    viewerRef.current?.setSplatScale(clamped);
   }, []);
 
   const handleResetCamera = useCallback(() => {
@@ -451,15 +396,13 @@ export default function Home() {
 
   const handleDemoSelect = useCallback(async (sceneName: string) => {
     const scene = DEMO_SCENES.find((s) => s.name === sceneName);
-    if (!scene || !viewerRef.current) return;
+    if (!scene) return;
+    if (isMobile) setMobileSheetState('idle');
     await loadScene(scene.url, {
       progressiveLoad: true,
       splatAlphaRemovalThreshold: 1,
       format: scene.format,
     });
-    if (isMobile) {
-      setMobileSheetState('idle');
-    }
   }, [loadScene, isMobile]);
 
   // ─── Keyboard shortcuts for camera views (SuperSplat-style) ────────────────
@@ -478,33 +421,30 @@ export default function Home() {
       if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       const view = viewByKey[e.key];
-      if (view) {
-        viewerRef.current?.setCameraView(view);
-      }
+      if (view) viewerRef.current?.setCameraView(view);
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, []);
 
-  // ─── Download progress line (minimalista, estilo referencia) ────────────────
   const downloading = progressiveState.status === 'downloading' || progressiveState.status === 'processing';
 
+  const viewerProps = {
+    onProgress: handleProgress,
+    onLoadStart: handleLoadStart,
+    onLoadComplete: handleLoadComplete,
+    onError: handleError,
+  };
+
   return (
-    <div className="relative w-screen h-screen overflow-hidden bg-black">
+    <div className="relative w-screen h-[100dvh] overflow-hidden bg-black">
       {/* ── Minimal top progress bar ── */}
       {downloading && (
         <div className="absolute top-0 left-0 right-0 z-[100] pointer-events-none">
           <div
-            className="h-[3px] bg-sky-500 shadow-[0_0_8px_rgba(56,189,248,0.5)] transition-all duration-500 ease-out"
+            className="h-[2px] bg-gradient-to-r from-sky-400 via-indigo-400 to-fuchsia-400 shadow-[0_0_10px_rgba(56,189,248,0.6)] transition-[width] duration-300 ease-out"
             style={{ width: `${Math.max(2, progressiveState.percent)}%` }}
           />
-          {progressiveState.percent > 0 && (
-            <div className="absolute top-2 left-4 px-2 py-1 bg-black/40 backdrop-blur-md border border-white/10 rounded-md">
-              <span className="text-[10px] font-black tracking-widest uppercase text-sky-400">
-                Cargando — {progressiveState.percent}%
-              </span>
-            </div>
-          )}
         </div>
       )}
 
@@ -517,6 +457,7 @@ export default function Home() {
           onUpload={() => setShowUploader(true)}
           isOpen={sidebarOpen}
           setIsOpen={setSidebarOpen}
+          backend={backend}
         />
       )}
 
@@ -529,207 +470,168 @@ export default function Home() {
           activeId={activeScene}
           onSelectModel={handleDemoSelect}
           onUpload={() => setShowUploader(true)}
-          searchPlaceholder="Search scenes…"
+          searchPlaceholder="Buscar escenas…"
         />
       )}
 
       {/* ── Uploader Dialog ── */}
       <Dialog open={showUploader} onOpenChange={setShowUploader}>
-        <DialogContent className="bg-[#0f0f11] border-white/10 text-white max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="glass glass-strong panel !rounded-[var(--ui-panel-radius)] text-white max-w-2xl max-h-[90vh] overflow-y-auto p-6">
           <DialogHeader>
-            <DialogTitle className="text-white">Cargar escena Splat</DialogTitle>
+            <DialogTitle className="text-white font-semibold tracking-tight">Cargar escena</DialogTitle>
           </DialogHeader>
-          <SceneUploader
-            onLoadFile={handleLoadFile}
-            onLoadURL={handleLoadURL}
-            isLoading={isLoading}
-          />
+          <SceneUploader onLoadFile={handleLoadFile} onLoadURL={handleLoadURL} isLoading={isLoading} />
         </DialogContent>
       </Dialog>
 
       {/* ── Open sidebar button (desktop only) ── */}
       {!isMobile && !sidebarOpen && (
-        <button
-          onClick={() => setSidebarOpen(true)}
-          className="absolute top-6 left-6 z-[300] w-12 h-12 rounded-full bg-[#1a1a1e]/70 backdrop-blur-[28px] border border-white/[0.08] text-white/50 flex items-center justify-center hover:bg-white/10 hover:text-white/80 transition-all duration-150 shadow-[0_4px_16px_rgba(0,0,0,0.4)]"
-          title="Mostrar panel"
-        >
-          <ChevronRight className="w-5 h-5" />
-        </button>
+        <div className="absolute top-6 left-6 z-[300] glass dock">
+          <button onClick={() => setSidebarOpen(true)} className="pill-btn" title="Mostrar panel" aria-label="Mostrar panel">
+            <ChevronRight className="w-5 h-5" />
+          </button>
+        </div>
       )}
 
       {/* ── Main Viewer ── */}
       <main className="absolute inset-0">
-        <GaussianSplatViewer
-          ref={viewerRef}
-          onProgress={handleProgress}
-          onLoadStart={handleLoadStart}
-          onLoadComplete={handleLoadComplete}
-          onError={handleError}
-        />
+        {backend === 'webgpu' && (
+          <WebGPUSplatViewer ref={attachViewer} {...viewerProps} onUnsupported={handleWebGPUUnsupported} />
+        )}
+        {backend === 'webgl' && (
+          <Suspense fallback={null}>
+            <GaussianSplatViewer ref={attachViewer} {...viewerProps} />
+          </Suspense>
+        )}
 
-        {/* Progressive Load Overlay (mantenido por si acaso) */}
         <ProgressiveLoader state={progressiveState} />
-
-        {/* Info Panel */}
         <InfoPanel info={sceneInfo} visible={infoVisible} onToggle={() => setInfoVisible((v) => !v)} />
-
-        {/* Benchmark Panel */}
         <PerformanceBenchmarkPanel info={benchmarkInfo} visible={benchmarkVisible} />
 
-        {/* Scale Control */}
-        {hasScene && (
-          <div className="absolute bottom-4 left-4 z-40 bg-black/70 backdrop-blur-md border border-white/10 rounded-full h-14 px-5 flex items-center gap-4">
-            <Settings2 className="w-4 h-4 text-white/50" />
-            <div className="flex items-center gap-2">
-              <button
-                className="w-7 h-7 flex items-center justify-center text-white/40 hover:text-white transition-colors"
-                onClick={() => {
-                  const next = Math.max(0.1, splatScale - 0.05);
-                  setSplatScale(next);
-                  viewerRef.current?.setSplatScale(next);
-                }}
-              >
-                <Minus className="w-3.5 h-3.5" />
-              </button>
-              <Slider
-                value={[splatScale]}
-                onValueChange={handleSplatScaleChange}
-                min={0.1}
-                max={3.0}
-                step={0.05}
-                className="w-44"
-              />
-              <button
-                className="w-7 h-7 flex items-center justify-center text-white/40 hover:text-white transition-colors"
-                onClick={() => {
-                  const next = Math.min(3.0, splatScale + 0.05);
-                  setSplatScale(next);
-                  viewerRef.current?.setSplatScale(next);
-                }}
-              >
-                <Plus className="w-3.5 h-3.5" />
-              </button>
-              <span className="text-white/60 text-xs font-mono w-10 text-right">{splatScale.toFixed(2)}</span>
-            </div>
+        {/* Splat scale: pill group with concentric inner pills */}
+        {hasScene && !advancedOpen && (
+          <div
+            // Sits beside the 320px sidebar (left-4 + 320 + 16px gap) when it is open.
+            className={`absolute z-40 glass dock items-center ${
+              isMobile ? 'left-4 bottom-24' : sidebarOpen ? 'left-[352px] bottom-4' : 'left-4 bottom-4'
+            }`}
+            role="group"
+            aria-label="Escala de splats"
+          >
+            <span className="pill-btn pointer-events-none !text-white/40" aria-hidden>
+              <Settings2 className="w-4 h-4" />
+            </span>
+            <button className="pill-btn" onClick={() => applySplatScale(splatScale - 0.05)} aria-label="Reducir escala">
+              <Minus className="w-3.5 h-3.5" />
+            </button>
+            <Slider
+              value={[splatScale]}
+              onValueChange={(v) => applySplatScale(v[0])}
+              min={0.1}
+              max={3.0}
+              step={0.05}
+              className="w-28 sm:w-40 mx-1"
+              aria-label="Escala de splats"
+            />
+            <button className="pill-btn" onClick={() => applySplatScale(splatScale + 0.05)} aria-label="Aumentar escala">
+              <Plus className="w-3.5 h-3.5" />
+            </button>
+            <span className="text-white/60 text-xs font-mono w-10 pr-3 text-right tabular-nums">{splatScale.toFixed(2)}</span>
           </div>
         )}
       </main>
 
-      {/* ── Right-side floating buttons ── */}
-      <div className="absolute top-6 right-6 z-[25000] flex flex-col items-center gap-3">
-        {/* Focus / Reset */}
-        <button
-          className="w-12 h-12 rounded-full border border-white/10 bg-black/50 backdrop-blur-xl text-white/50 flex items-center justify-center hover:bg-white/10 hover:text-white hover:scale-105 active:scale-95 transition-all duration-150"
-          onClick={handleResetCamera}
-          title="Enfocar escena"
-        >
+      {/* ── Right-side dock ── */}
+      <nav
+        aria-label="Herramientas del visor"
+        className="absolute top-4 right-4 md:top-6 md:right-6 z-[25000] glass dock flex-col items-center"
+      >
+        <button className="pill-btn" onClick={handleResetCamera} title="Enfocar escena (0)" aria-label="Enfocar escena">
           <Crosshair className="w-4 h-4" />
         </button>
-
-        {/* Benchmark */}
         <button
-          className={`w-12 h-12 rounded-full border border-white/10 backdrop-blur-xl flex items-center justify-center hover:scale-105 active:scale-95 transition-all duration-150 ${
-            benchmarkVisible
-              ? 'text-sky-300 bg-sky-400/10 border-sky-400/30'
-              : 'text-white/50 bg-black/50 hover:bg-white/10 hover:text-white'
-          }`}
+          className="pill-btn"
+          onClick={handleTogglePointCloud}
+          title={pointCloudMode ? 'Modo splats' : 'Modo puntos'}
+          aria-label="Alternar modo puntos"
+          aria-pressed={pointCloudMode}
+        >
+          {pointCloudMode ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+        </button>
+        <button
+          className="pill-btn"
+          onClick={() => setAdvancedOpen((v) => !v)}
+          title="Controles avanzados"
+          aria-label="Controles avanzados"
+          aria-pressed={advancedOpen}
+        >
+          <SlidersHorizontal className="w-4 h-4" />
+        </button>
+        {backend !== 'detecting' && (
+          <button
+            className="pill-btn"
+            onClick={() => {
+              const next = !editorView;
+              setEditorView(next);
+              viewerRef.current?.setEditorViewVisible(next);
+            }}
+            title="Vista editor: cámara, frustum y minimapa (clic para navegar)"
+            aria-label="Modo editor"
+            aria-pressed={editorView}
+          >
+            <Camera className="w-4 h-4" />
+          </button>
+        )}
+
+        <div className="dock-divider my-1" />
+
+        <button
+          className="pill-btn"
           onClick={() => {
             const next = !benchmarkVisible;
             setBenchmarkVisible(next);
             if (next) setInfoVisible(false);
           }}
           title="Benchmark 2026"
+          aria-label="Benchmark"
           aria-pressed={benchmarkVisible}
         >
           <Activity className="w-4 h-4" />
         </button>
-
-        {/* Points / Splats */}
         <button
-          className={`w-12 h-12 rounded-full border border-white/10 backdrop-blur-xl flex items-center justify-center hover:scale-105 active:scale-95 transition-all duration-150 ${
-            pointCloudMode
-              ? 'text-amber-400 bg-amber-400/10 border-amber-400/30'
-              : 'text-white/50 bg-black/50 hover:bg-white/10 hover:text-white'
-          }`}
-          onClick={handleTogglePointCloud}
-          title={pointCloudMode ? 'Modo puntos' : 'Modo splats'}
-        >
-          {pointCloudMode ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
-        </button>
-
-        {/* Remove */}
-        {hasScene && (
-          <button
-            className="w-12 h-12 rounded-full border border-white/10 bg-black/50 backdrop-blur-xl text-white/50 flex items-center justify-center hover:bg-red-500/20 hover:text-red-400 hover:scale-105 active:scale-95 transition-all duration-150"
-            onClick={handleRemoveScene}
-            title="Eliminar escena"
-          >
-            <Trash2 className="w-4 h-4" />
-          </button>
-        )}
-
-        {/* Info */}
-        <button
-          className={`w-12 h-12 rounded-full border border-white/10 backdrop-blur-xl flex items-center justify-center hover:scale-105 active:scale-95 transition-all duration-150 ${
-            infoVisible
-              ? 'text-blue-400 bg-blue-400/10 border-blue-400/30'
-              : 'text-white/50 bg-black/50 hover:bg-white/10 hover:text-white'
-          }`}
+          className="pill-btn"
           onClick={() => {
             const next = !infoVisible;
             setInfoVisible(next);
             if (next) setBenchmarkVisible(false);
           }}
           title="Información"
+          aria-label="Información de la escena"
+          aria-pressed={infoVisible}
         >
           <Info className="w-4 h-4" />
         </button>
 
-        {/* Advanced controls */}
-        <button
-          className={`w-12 h-12 rounded-full border border-white/10 backdrop-blur-xl flex items-center justify-center hover:scale-105 active:scale-95 transition-all duration-150 ${
-            advancedOpen
-              ? 'text-violet-300 bg-violet-400/10 border-violet-400/30'
-              : 'text-white/50 bg-black/50 hover:bg-white/10 hover:text-white'
-          }`}
-          onClick={() => setAdvancedOpen((v) => !v)}
-          title="Controles avanzados"
-          aria-pressed={advancedOpen}
-        >
-          <SlidersHorizontal className="w-4 h-4" />
-        </button>
+        {hasScene && (
+          <>
+            <div className="dock-divider my-1" />
+            <button className="pill-btn pill-btn--danger" onClick={handleRemoveScene} title="Eliminar escena" aria-label="Eliminar escena">
+              <Trash2 className="w-4 h-4" />
+            </button>
+          </>
+        )}
+      </nav>
 
-        {/* Editor view (camera debug) */}
-        <button
-          className={`w-12 h-12 rounded-full border border-white/10 backdrop-blur-xl flex items-center justify-center hover:scale-105 active:scale-95 transition-all duration-150 ${
-            editorView
-              ? 'text-cyan-300 bg-cyan-400/10 border-cyan-400/30'
-              : 'text-white/50 bg-black/50 hover:bg-white/10 hover:text-white'
-          }`}
-          onClick={() => {
-            const next = !editorView;
-            setEditorView(next);
-            viewerRef.current?.setEditorViewVisible(next);
-          }}
-          title="Modo editor (ver cámara y frustum)"
-          aria-pressed={editorView}
-        >
-          <Camera className="w-4 h-4" />
-        </button>
-      </div>
-
-      {/* ── Editor view overlay frame (matches the GL picture-in-picture) ── */}
+      {/* ── Editor view frame: matches the GPU picture-in-picture rect (30%, min 120px, 12px margin) ── */}
       {editorView && (
-        <div className="absolute bottom-3 right-3 w-[30%] h-[30%] min-w-[120px] min-h-[120px] pointer-events-none border border-cyan-400/40 rounded-md z-[200] bg-transparent" />
+        <div className="absolute bottom-3 right-3 w-[30%] h-[30%] min-w-[120px] min-h-[120px] pointer-events-none border border-cyan-400/40 rounded-[4px] z-[200]">
+          <span className="absolute -top-8 right-0 glass rounded-full px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-cyan-200/90 whitespace-nowrap">
+            {backend === 'webgpu' ? 'Vista editor · clic para navegar' : 'Vista editor'}
+          </span>
+        </div>
       )}
 
-      {/* ── Advanced controls panel ── */}
-      <AdvancedControlsPanel
-        viewerRef={viewerRef}
-        visible={advancedOpen}
-        onClose={() => setAdvancedOpen(false)}
-      />
+      <AdvancedControlsPanel viewerRef={viewerRef} visible={advancedOpen} onClose={() => setAdvancedOpen(false)} />
     </div>
   );
 }

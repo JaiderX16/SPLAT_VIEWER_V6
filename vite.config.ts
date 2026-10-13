@@ -2,6 +2,7 @@ import path from "path"
 import react from "@vitejs/plugin-react"
 import { defineConfig } from "vite"
 import { inspectAttr } from 'kimi-plugin-inspect-react'
+import { wgslVitePlugin } from '@vgpu/wgsl/loader-vite'
 
 // https://vite.dev/config/
 //
@@ -17,7 +18,12 @@ const crossOriginIsolationHeaders = {
 
 export default defineConfig({
   base: './',
-  plugins: [inspectAttr(), react()],
+  // wgslVitePlugin prepares every `.wgsl` import at build time (vgpu ShaderSource),
+  // so the browser bundle never ships the WGSL parser.
+  plugins: [inspectAttr(), react(), wgslVitePlugin()],
+  worker: {
+    format: 'es',
+  },
   server: {
     port: 3000,
     headers: crossOriginIsolationHeaders,
@@ -46,6 +52,9 @@ export default defineConfig({
           }
           if (id.includes('gaussian-splats-3d')) {
             return 'gaussian-splats';
+          }
+          if (id.includes('node_modules/vgpu') || id.includes('node_modules/@vgpu')) {
+            return 'vgpu';
           }
         },
       },

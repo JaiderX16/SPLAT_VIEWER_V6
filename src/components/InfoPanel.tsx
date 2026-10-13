@@ -12,6 +12,7 @@ export interface SceneInfo {
   sortTime: number;
   splatScale: number;
   pointCloudMode: boolean;
+  backend?: 'webgpu' | 'webgl';
 }
 
 interface InfoPanelProps {
@@ -25,14 +26,14 @@ export const InfoPanel: React.FC<InfoPanelProps> = ({ info, visible, onToggle })
 
   if (!info) {
     return (
-      <div className="absolute top-4 right-20 z-40 bg-black/80 backdrop-blur-md border border-white/10 rounded-3xl p-5 text-white/50 text-sm min-w-[280px]">
-        <div className="flex items-center justify-between mb-2">
-          <span className="font-semibold text-white/70">Scene Info</span>
-          <Button onClick={onToggle} variant="ghost" size="icon" className="h-6 w-6 text-white/50 hover:text-white">
+      <div className="absolute top-4 right-[5.5rem] md:top-6 md:right-[6.5rem] z-40 glass panel text-white/50 text-sm min-w-[280px]">
+        <div className="flex items-center justify-between mb-2 pl-2">
+          <span className="font-semibold text-white/70">Escena</span>
+          <Button onClick={onToggle} variant="ghost" size="icon" className="h-8 w-8 rounded-full text-white/50 hover:text-white hover:bg-white/10">
             <X className="w-4 h-4" />
           </Button>
         </div>
-        <p>No scene loaded</p>
+        <p className="pl-2 pb-1">No hay escena cargada</p>
       </div>
     );
   }
@@ -40,18 +41,23 @@ export const InfoPanel: React.FC<InfoPanelProps> = ({ info, visible, onToggle })
   const splatRenderPct = info.splatCount > 0 ? (info.splatRenderCount / info.splatCount * 100).toFixed(1) : '0.0';
 
   return (
-    <div className="absolute top-4 right-20 z-40 bg-black/80 backdrop-blur-md border border-white/10 rounded-3xl p-5 text-white/80 text-sm min-w-[280px] shadow-2xl">
-      <div className="flex items-center justify-between mb-3">
+    <div className="absolute top-4 right-[5.5rem] md:top-6 md:right-[6.5rem] z-40 glass panel text-white/80 text-sm min-w-[280px]">
+      <div className="flex items-center justify-between mb-2 pl-2">
         <span className="font-semibold text-white flex items-center gap-2">
-          <Grid3X3 className="w-4 h-4 text-blue-400" />
-          Scene Info
+          <Grid3X3 className="w-4 h-4 text-sky-300" />
+          Escena
+          {info.backend && (
+            <span className="rounded-full bg-white/[0.08] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white/60">
+              {info.backend === 'webgpu' ? 'WebGPU' : 'WebGL'}
+            </span>
+          )}
         </span>
-        <Button onClick={onToggle} variant="ghost" size="icon" className="h-6 w-6 text-white/50 hover:text-white">
+        <Button onClick={onToggle} variant="ghost" size="icon" className="h-8 w-8 rounded-full text-white/50 hover:text-white hover:bg-white/10">
           <X className="w-4 h-4" />
         </Button>
       </div>
 
-      <div className="space-y-2.5">
+      <div className="panel-inner bg-white/[0.03] p-3 space-y-2.5">
         <div className="flex items-center justify-between">
           <span className="text-white/50 flex items-center gap-1.5">
             <Camera className="w-3.5 h-3.5" /> Position

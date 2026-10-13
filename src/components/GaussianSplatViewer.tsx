@@ -2,28 +2,17 @@ import { useRef, useEffect, forwardRef, useImperativeHandle } from 'react';
 import * as THREE from 'three';
 import * as GaussianSplats3D from '@mkkellogg/gaussian-splats-3d';
 import { EditorOverlay, type OverlayViewerHost } from '@/lib/editorOverlay';
-
-// ─── Camera settings (replicados del proyecto de referencia) ─────────────────
-const CAMERA = {
-  UP: [0, -1, 0] as [number, number, number],
-  INITIAL_POSITION: [0, -2.4, 4.4] as [number, number, number],
-  LOOK_AT: [0, 0, 0] as [number, number, number],
-  MIN_DISTANCE: 0.5,
-  MAX_DISTANCE: 20,
-  // Keep the camera from going too far above/below the model (which put it at
-  // "ground level" and made navigation disorienting).
-  MIN_POLAR_ANGLE: Math.PI * 0.10,
-  MAX_POLAR_ANGLE: Math.PI * 0.82,
-};
-
-const VIEW_DIRECTIONS: Record<Exclude<CameraView, 'reset'>, [number, number, number]> = {
-  front: [0, 0, 1],
-  back: [0, 0, -1],
-  left: [-1, 0, 0],
-  right: [1, 0, 0],
-  top: [0, 1, 0],
-  bottom: [0, -1, 0],
-};
+import {
+  CAMERA,
+  INTRO,
+  VIEW_DIRECTIONS,
+  isAbortError,
+  type CameraView,
+  type SceneLoadOptions,
+  type SplatViewerHandle,
+  type SplatViewerProps,
+  type ViewerStats,
+} from '@/lib/viewerHandle';
 
 const VIEW_UPS: Record<Exclude<CameraView, 'reset'>, [number, number, number]> = {
   front: [0, -1, 0],
@@ -35,8 +24,8 @@ const VIEW_UPS: Record<Exclude<CameraView, 'reset'>, [number, number, number]> =
 };
 
 const ROTATION = {
-  SPEED_INTRO: 2.2,
-  SPEED_SLOW: 0.8,
+  SPEED_INTRO: INTRO.SPEED_INTRO,
+  SPEED_SLOW: INTRO.SPEED_SLOW,
 };
 
 const DAMPING = {
@@ -45,13 +34,17 @@ const DAMPING = {
 };
 
 const ANIMATION = {
-  INTRO_DURATION: 6000,
-  INTRO_START_DISTANCE: 9.0,
-  INTRO_END_DISTANCE: 2.6,
+  INTRO_DURATION: INTRO.DURATION_MS,
+  INTRO_START_DISTANCE: INTRO.START_DISTANCE,
+  INTRO_END_DISTANCE: INTRO.END_DISTANCE,
 };
 
-/** Named camera viewpoints, mirroring SuperSplat-style view presets. */
-export type CameraView = 'front' | 'back' | 'left' | 'right' | 'top' | 'bottom' | 'reset';
+const SCENE_FORMATS: Record<string, GaussianSplats3D.SceneFormat | undefined> = {
+  ply: GaussianSplats3D.SceneFormat.Ply,
+  splat: GaussianSplats3D.SceneFormat.Splat,
+  ksplat: GaussianSplats3D.SceneFormat.KSplat,
+  spz: GaussianSplats3D.SceneFormat.Spz,
+};
 
 interface ViewerControlsLike {
   enableDamping: boolean;
@@ -87,38 +80,51 @@ interface ViewerInternalLike {
   setOrthographicMode?: (enabled: boolean) => void;
 }
 
-export interface GaussianSplatViewerHandle {
-  viewer: GaussianSplats3D.Viewer | null;
-  addSplatScene: (path: string, options?: Record<string, unknown>) => Promise<void>;
-  addSplatScenes: (sceneOptions: Record<string, unknown>[], showLoadingUI?: boolean) => Promise<void>;
-  removeSplatScene: (index: number) => Promise<void>;
-  removeSplatScenes: (indexes: number[]) => Promise<void>;
-  start: () => void;
-  stop: () => void;
-  dispose: () => Promise<void>;
-  setPointCloudMode: (enabled: boolean) => void;
-  setSplatScale: (scale: number) => void;
-  setActiveSphericalHarmonicsDegrees: (degree: number) => void;
-  getSplatScene: (index: number) => unknown;
-  getSceneCount: () => number;
-  resetCamera: () => void;
-  setOrthographicMode: (enabled: boolean) => void;
-  getOrthographicMode: () => boolean;
-  setFov: (fov: number) => void;
-  getFov: () => number;
-  setBackgroundColor: (color: string) => void;
-  setGridVisible: (visible: boolean) => void;
-  setAxesVisible: (visible: boolean) => void;
-  setCameraView: (view: CameraView) => void;
-  setEditorViewVisible: (visible: boolean) => void;
+interface RawStatsLike {
+  splatMesh?: {
+    getSplatCount?: () => number;
+    getSplatScale?: () => number;
+    getPointCloudModeEnabled?: () => boolean;
+  };
+  renderer?: { domElement?: unknown; getPixelRatio?: () => number; info?: { render?: { calls?: number } } };
+  camera?: { position?: THREE.Vector3; up?: THREE.Vector3 };
+  controls?: { target?: THREE.Vector3 };
+  currentFPS?: number | null;
+  lastSortTime?: number;
+  splatRenderCount?: number;
 }
 
-interface GaussianSplatViewerProps {
-  className?: string;
-  onProgress?: (percent: number, percentLabel: string, status: number) => void;
-  onLoadStart?: () => void;
-  onLoadComplete?: () => void;
-  onError?: (error: Error) => void;
+const toTuple = (v?: { x: number; y: number; z: number }): [number, number, number] | null =>
+  v ? [v.x, v.y, v.z] : null;
+
+function readStats(viewer: GaussianSplats3D.Viewer): ViewerStats | null {
+  const raw = viewer as unknown as RawStatsLike;
+  const mesh = raw.splatMesh;
+  if (!mesh || !raw.camera) return null;
+  const canvas = raw.renderer?.domElement instanceof HTMLCanvasElement ? raw.renderer.domElement : null;
+  const calls = raw.renderer?.info?.render?.calls;
+  return {
+    backend: 'webgl',
+    splatCount: mesh.getSplatCount?.() || 0,
+    renderCount: raw.splatRenderCount || 0,
+    fps: typeof raw.currentFPS === 'number' ? raw.currentFPS : null,
+    sortTimeMs: typeof raw.lastSortTime === 'number' ? raw.lastSortTime : 0,
+    drawCalls: typeof calls === 'number' ? calls : null,
+    renderWidth: canvas?.width ?? null,
+    renderHeight: canvas?.height ?? null,
+    renderPixelRatio: canvas && canvas.clientWidth > 0
+      ? Math.round((canvas.width / canvas.clientWidth) * 10) / 10
+      : raw.renderer?.getPixelRatio?.() ?? null,
+    gpuBufferMB: null,
+    cameraPosition: toTuple(raw.camera.position),
+    cameraTarget: toTuple(raw.controls?.target),
+    cameraUp: toTuple(raw.camera.up),
+    splatScale: mesh.getSplatScale?.() || 1,
+    pointCloudMode: mesh.getPointCloudModeEnabled?.() || false,
+  };
+}
+
+interface GaussianSplatViewerProps extends SplatViewerProps {
   cameraUp?: [number, number, number];
   initialCameraPosition?: [number, number, number];
   initialCameraLookAt?: [number, number, number];
@@ -126,7 +132,7 @@ interface GaussianSplatViewerProps {
   sphericalHarmonicsDegree?: number;
 }
 
-const GaussianSplatViewer = forwardRef<GaussianSplatViewerHandle, GaussianSplatViewerProps>(
+const GaussianSplatViewer = forwardRef<SplatViewerHandle, GaussianSplatViewerProps>(
   ({
     className = '',
     onProgress,
@@ -307,10 +313,10 @@ const GaussianSplatViewer = forwardRef<GaussianSplatViewerHandle, GaussianSplatV
     };
 
     useImperativeHandle(ref, () => ({
-      get viewer() {
-        return viewerRef.current;
-      },
-      addSplatScene: async (path: string, options: Record<string, unknown> = {}) => {
+      backend: 'webgl' as const,
+      supportsSphericalHarmonics: true,
+      supportsEditorView: true,
+      addSplatScene: async (path: string, options: SceneLoadOptions = {}) => {
         const viewer = viewerRef.current;
         if (!viewer) throw new Error('Viewer not initialized');
 
@@ -318,9 +324,13 @@ const GaussianSplatViewer = forwardRef<GaussianSplatViewerHandle, GaussianSplatV
 
         try {
           const loadOptions = {
-            ...options,
+            splatAlphaRemovalThreshold: options.splatAlphaRemovalThreshold ?? 1,
+            position: options.position,
+            rotation: options.rotation,
+            scale: options.scale,
+            format: options.format ? SCENE_FORMATS[options.format] : undefined,
             showLoadingUI: false,
-            progressiveLoad: (options.progressiveLoad as boolean | undefined) ?? true,
+            progressiveLoad: options.progressiveLoad ?? true,
             onProgress: (percent: number, percentLabel: string, loaderStatus: number) => {
               onProgressRef.current?.(percent, percentLabel, loaderStatus);
             },
@@ -336,67 +346,17 @@ const GaussianSplatViewer = forwardRef<GaussianSplatViewerHandle, GaussianSplatV
           runIntroAnimation(viewer);
           onLoadCompleteRef.current?.();
         } catch (e) {
+          if (isAbortError(e)) return;
           const error = e instanceof Error ? e : new Error(String(e));
           onErrorRef.current?.(error);
           throw error;
         }
       },
-      addSplatScenes: async (sceneOptions: Record<string, unknown>[], showLoadingUI = true) => {
-        const viewer = viewerRef.current;
-        if (!viewer) throw new Error('Viewer not initialized');
-
-        onLoadStartRef.current?.();
-
-        try {
-          const options = sceneOptions.map((opt) => ({
-            ...opt,
-            showLoadingUI: false,
-            progressiveLoad: (opt.progressiveLoad as boolean | undefined) ?? true,
-          }));
-
-          await viewer.addSplatScenes(
-            options as unknown as GaussianSplats3D.SceneOptions[],
-            showLoadingUI,
-            (percent: number, percentLabel: string, loaderStatus: number) => {
-              onProgressRef.current?.(percent, percentLabel, loaderStatus);
-            }
-          );
-
-          if (!isRunningRef.current) {
-            viewer.start();
-            isRunningRef.current = true;
-          }
-
-          runIntroAnimation(viewer);
-          onLoadCompleteRef.current?.();
-        } catch (e) {
-          const error = e instanceof Error ? e : new Error(String(e));
-          onErrorRef.current?.(error);
-          throw error;
-        }
-      },
+      getStats: () => (viewerRef.current ? readStats(viewerRef.current) : null),
       removeSplatScene: async (index: number) => {
         const viewer = viewerRef.current;
         if (!viewer) throw new Error('Viewer not initialized');
         return viewer.removeSplatScene(index);
-      },
-      removeSplatScenes: async (indexes: number[]) => {
-        const viewer = viewerRef.current;
-        if (!viewer) throw new Error('Viewer not initialized');
-        return viewer.removeSplatScenes(indexes);
-      },
-      start: () => {
-        if (!isRunningRef.current) {
-          viewerRef.current?.start();
-          isRunningRef.current = true;
-        }
-      },
-      stop: () => {
-        viewerRef.current?.stop();
-        isRunningRef.current = false;
-      },
-      dispose: async () => {
-        return viewerRef.current?.dispose() || Promise.resolve();
       },
       setPointCloudMode: (enabled: boolean) => {
         const viewer = viewerRef.current as unknown as ViewerInternalLike;
@@ -412,10 +372,6 @@ const GaussianSplatViewer = forwardRef<GaussianSplatViewerHandle, GaussianSplatV
       },
       setActiveSphericalHarmonicsDegrees: (degree: number) => {
         viewerRef.current?.setActiveSphericalHarmonicsDegrees(degree);
-      },
-      getSplatScene: (index: number) => {
-        const viewer = viewerRef.current as unknown as ViewerInternalLike;
-        return viewer?.splatMesh?.scenes?.[index] || null;
       },
       getSceneCount: () => {
         const viewer = viewerRef.current as unknown as ViewerInternalLike;

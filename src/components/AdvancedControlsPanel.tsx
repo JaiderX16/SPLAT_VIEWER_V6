@@ -1,10 +1,7 @@
 import { useEffect, useState, useCallback, type RefObject } from 'react';
 import { Box, Grid3x3, Compass, Sun, Moon, X } from 'lucide-react';
 import { Slider } from '@/components/ui/slider';
-import {
-  type GaussianSplatViewerHandle,
-  type CameraView,
-} from '@/components/GaussianSplatViewer';
+import type { CameraView, SplatViewerHandle } from '@/lib/viewerHandle';
 
 const VIEW_PRESETS: Array<{ view: CameraView; label: string; title: string }> = [
   { view: 'front', label: 'Frente', title: 'Vista frontal (1)' },
@@ -19,7 +16,7 @@ const VIEW_PRESETS: Array<{ view: CameraView; label: string; title: string }> = 
 const SH_DEGREES = [0, 1, 2, 3];
 
 export interface AdvancedControlsPanelProps {
-  viewerRef: RefObject<GaussianSplatViewerHandle | null>;
+  viewerRef: RefObject<SplatViewerHandle | null>;
   visible: boolean;
   onClose: () => void;
 }
@@ -35,6 +32,7 @@ export default function AdvancedControlsPanel({
   const [lightBg, setLightBg] = useState(false);
   const [grid, setGrid] = useState(false);
   const [axes, setAxes] = useState(false);
+  const [supportsSH, setSupportsSH] = useState(true);
 
   // Sync state from viewer when panel becomes visible
   useEffect(() => {
@@ -43,6 +41,7 @@ export default function AdvancedControlsPanel({
     if (!viewer) return;
     setOrtho(viewer.getOrthographicMode());
     setFov(Math.round(viewer.getFov()));
+    setSupportsSH(viewer.supportsSphericalHarmonics);
   }, [visible, viewerRef]);
 
   const handleApplyView = useCallback((view: CameraView) => {
@@ -90,9 +89,10 @@ export default function AdvancedControlsPanel({
     <div
       role="region"
       aria-label="Controles avanzados de cámara y escena"
-      className="absolute bottom-4 left-1/2 -translate-x-1/2 z-[400] max-w-[96vw]"
+      className="absolute bottom-4 left-1/2 -translate-x-1/2 z-[400] w-max max-w-[calc(100vw-2rem)]"
     >
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-2xl bg-[#0f0f11]/90 backdrop-blur-xl border border-white/10 px-4 py-3 text-white shadow-[0_8px_30px_rgba(0,0,0,0.6)]">
+      {/* Concentric: 22px radius − 6px padding = 16px → h-8 pills are exactly round. */}
+      <div className="glass flex flex-wrap items-center justify-center gap-x-1 gap-y-1 rounded-[22px] p-1.5 text-white">
         {/* View presets */}
         <div className="flex items-center gap-1">
           {VIEW_PRESETS.map((preset) => (
@@ -100,29 +100,28 @@ export default function AdvancedControlsPanel({
               key={preset.view}
               title={preset.title}
               onClick={() => handleApplyView(preset.view)}
-              className="px-2 py-1.5 rounded-md text-[11px] font-medium text-white/70 hover:text-white hover:bg-white/10 transition-colors"
+              className="pill"
             >
               {preset.label}
             </button>
           ))}
         </div>
 
-        <div className="w-px h-6 bg-white/10" />
+        <div className="w-px h-5 bg-white/10" />
 
         {/* Orthographic toggle */}
         <button
           title="Ortográfica / Perspectiva"
           onClick={handleToggleOrtho}
-          className={`flex items-center gap-1.5 px-2 py-1.5 rounded-md text-[11px] font-medium transition-colors ${
-            ortho ? 'text-sky-300 bg-sky-400/10' : 'text-white/70 hover:bg-white/10'
-          }`}
+          className="pill"
+          aria-pressed={ortho}
         >
           <Box className="w-3.5 h-3.5" />
           Orto
         </button>
 
         {/* FOV */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 px-2">
           <span className="text-[11px] font-mono text-white/50">FOV</span>
           <Slider
             value={[fov]}
@@ -135,33 +134,32 @@ export default function AdvancedControlsPanel({
           <span className="text-[11px] font-mono text-white/70 w-8 text-right">{fov}°</span>
         </div>
 
-        <div className="w-px h-6 bg-white/10" />
+        <div className="w-px h-5 bg-white/10" />
 
-        {/* SH quality */}
+        {/* SH quality (the WebGPU .splat path has no SH data) */}
+        {supportsSH && (
         <div className="flex items-center gap-1">
           <span className="text-[11px] text-white/50 mr-1">SH</span>
           {SH_DEGREES.map((deg) => (
             <button
               key={deg}
               onClick={() => handleShSelect(deg)}
-              className={`w-7 h-7 rounded-md text-[11px] font-mono transition-colors ${
-                shDegree === deg
-                  ? 'text-white bg-white/15'
-                  : 'text-white/50 hover:text-white hover:bg-white/10'
-              }`}
+              className="pill !w-8 !px-0 font-mono"
+              aria-pressed={shDegree === deg}
             >
               {deg}
             </button>
           ))}
         </div>
+        )}
 
-        <div className="w-px h-6 bg-white/10" />
+        {supportsSH && <div className="w-px h-5 bg-white/10" />}
 
         {/* Background */}
         <button
           title="Fondo claro / oscuro"
           onClick={handleToggleBg}
-          className="flex items-center gap-1.5 px-2 py-1.5 rounded-md text-[11px] font-medium text-white/70 hover:text-white hover:bg-white/10 transition-colors"
+          className="pill"
         >
           {lightBg ? <Moon className="w-3.5 h-3.5" /> : <Sun className="w-3.5 h-3.5" />}
           Fondo
@@ -171,9 +169,8 @@ export default function AdvancedControlsPanel({
         <button
           title="Mostrar rejilla"
           onClick={handleToggleGrid}
-          className={`flex items-center gap-1.5 px-2 py-1.5 rounded-md text-[11px] font-medium transition-colors ${
-            grid ? 'text-amber-300 bg-amber-400/10' : 'text-white/70 hover:bg-white/10'
-          }`}
+          className="pill"
+          aria-pressed={grid}
         >
           <Grid3x3 className="w-3.5 h-3.5" />
           Rejilla
@@ -183,9 +180,8 @@ export default function AdvancedControlsPanel({
         <button
           title="Mostrar ejes"
           onClick={handleToggleAxes}
-          className={`flex items-center gap-1.5 px-2 py-1.5 rounded-md text-[11px] font-medium transition-colors ${
-            axes ? 'text-emerald-300 bg-emerald-400/10' : 'text-white/70 hover:bg-white/10'
-          }`}
+          className="pill"
+          aria-pressed={axes}
         >
           <Compass className="w-3.5 h-3.5" />
           Ejes
@@ -195,7 +191,8 @@ export default function AdvancedControlsPanel({
         <button
           title="Cerrar"
           onClick={onClose}
-          className="ml-1 p-1.5 rounded-md text-white/40 hover:text-white hover:bg-white/10 transition-colors"
+          className="pill !w-8 !px-0"
+          aria-label="Cerrar"
         >
           <X className="w-4 h-4" />
         </button>

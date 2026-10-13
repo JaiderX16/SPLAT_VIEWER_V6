@@ -15,6 +15,7 @@ export interface SidebarProps {
   onUpload: () => void;
   isOpen: boolean;
   setIsOpen: (isOpen: boolean) => void;
+  backend?: 'webgpu' | 'webgl' | 'detecting';
 }
 
 function formatTime(date: Date): string {
@@ -28,6 +29,7 @@ export default function Sidebar({
   onUpload,
   isOpen,
   setIsOpen,
+  backend = 'detecting',
 }: SidebarProps) {
   const [time, setTime] = useState(() => formatTime(new Date()));
 
@@ -41,13 +43,14 @@ export default function Sidebar({
   return (
     <aside
       aria-label="Panel lateral de escenas"
-      className="absolute top-4 left-4 bottom-4 w-[320px] z-[300] flex flex-col rounded-[48px] bg-[#111113]/95 backdrop-blur-[28px] border border-white/[0.06] shadow-[0_8px_40px_rgba(0,0,0,0.6)] overflow-hidden"
+      // Concentric radii: aside 32px − 12px padding → 20px cards → full pills inside.
+      className="absolute top-4 left-4 bottom-4 w-[320px] z-[300] flex flex-col gap-2 p-3 rounded-[32px] glass overflow-hidden"
     >
       {/* Header */}
-      <div className="flex items-start justify-between p-6 pb-4">
-        <div className="flex items-center gap-4">
-          <div className="w-12 h-12 rounded-full bg-white/10 flex items-center justify-center">
-            <div className="w-2.5 h-2.5 rounded-full bg-white/80" />
+      <div className="flex items-center justify-between rounded-[20px] bg-white/[0.03] p-2">
+        <div className="flex items-center gap-3">
+          <div className="w-11 h-11 rounded-full bg-white/10 flex items-center justify-center">
+            <div className="w-2.5 h-2.5 rounded-full bg-gradient-to-br from-sky-300 to-fuchsia-300" />
           </div>
           <div>
             <h1 className="text-white font-semibold text-sm tracking-wider uppercase">
@@ -56,12 +59,20 @@ export default function Sidebar({
             <div className="flex items-center gap-1.5 mt-1">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
               <span className="text-white/40 text-xs font-mono">{time}</span>
+              {backend !== 'detecting' && (
+                <span
+                  className="ml-1 rounded-full bg-white/[0.07] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white/55"
+                  title={backend === 'webgpu' ? 'Renderizado con WebGPU (vgpu)' : 'Renderizado con WebGL (fallback)'}
+                >
+                  {backend === 'webgpu' ? 'WebGPU' : 'WebGL'}
+                </span>
+              )}
             </div>
           </div>
         </div>
         <button
           onClick={() => setIsOpen(false)}
-          className="w-12 h-12 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-white/40 hover:text-white/80 hover:bg-white/10 transition-colors"
+          className="pill-btn"
           title="Cerrar panel"
           aria-label="Cerrar panel"
         >
@@ -70,13 +81,13 @@ export default function Sidebar({
       </div>
 
       {/* Scene Library */}
-      <div className="flex-1 overflow-y-auto px-6 py-2">
-        <div className="mb-4">
+      <div className="flex-1 overflow-y-auto py-2">
+        <div className="mb-3 px-3">
           <span className="text-[10px] font-bold tracking-[0.15em] uppercase text-white/30">
-            Scene Library
+            Biblioteca de escenas
           </span>
         </div>
-        <div className="space-y-2">
+        <div className="space-y-1">
           {models.map((model, index) => {
             const isActive = activeId === model.url;
             const num = String(index + 1).padStart(2, '0');
@@ -85,7 +96,7 @@ export default function Sidebar({
                 key={model.name}
                 onClick={() => onSelectModel(model.name)}
                 className={`
-                  w-full flex items-center gap-3 px-3 py-3 rounded-2xl transition-all duration-200 text-left
+                  w-full flex items-center gap-3 p-2 pr-4 rounded-[20px] transition-colors duration-150 text-left
                   ${isActive
                     ? 'bg-white/[0.08] border border-white/[0.08]'
                     : 'hover:bg-white/[0.04] border border-transparent'
@@ -94,7 +105,7 @@ export default function Sidebar({
               >
                 <div
                   className={`
-                    w-8 h-8 rounded-full flex items-center justify-center text-[10px] font-bold
+                    w-10 h-10 rounded-full flex items-center justify-center text-[10px] font-bold tabular-nums
                     ${isActive ? 'bg-white/10 text-white' : 'bg-white/5 text-white/30'}
                   `}
                 >
@@ -123,14 +134,14 @@ export default function Sidebar({
       </div>
 
       {/* Footer */}
-      <div className="p-6 pt-2">
+      <div>
         <button
           onClick={onUpload}
-          className="w-full flex items-center justify-center gap-2 h-12 rounded-full bg-white/5 border border-white/[0.08] text-white/50 hover:text-white hover:bg-white/10 hover:border-white/15 transition-all duration-150"
+          className="w-full flex items-center justify-center gap-2 h-12 rounded-full bg-white text-black/85 hover:bg-white/90 active:scale-[0.98] transition-all duration-150"
         >
           <Upload className="w-4 h-4" />
           <span className="text-xs font-semibold tracking-wider uppercase">
-            Load Scene
+            Cargar escena
           </span>
         </button>
       </div>
