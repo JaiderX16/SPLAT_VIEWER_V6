@@ -43,11 +43,12 @@ export default function Sidebar({
   return (
     <aside
       aria-label="Panel lateral de escenas"
-      // Concentric radii: aside 32px − 12px padding → 20px cards → full pills inside.
-      className="absolute top-4 left-4 bottom-4 w-[320px] z-[300] flex flex-col gap-2 p-3 rounded-[32px] glass overflow-hidden"
+      // Concentric radii: pad 12 + header r30 = 42; rows: pad 8 + 40px circle r20 = 28.
+      className="absolute top-4 left-4 bottom-4 w-[320px] z-[300] flex flex-col gap-2 p-3 rounded-[42px] glass overflow-hidden"
     >
       {/* Header */}
-      <div className="flex items-center justify-between rounded-[20px] bg-black/[0.04] dark:bg-black/[0.20] p-2">
+      {/* pad 8 + 44px circle r22 = 30 */}
+      <div className="flex items-center justify-between rounded-[30px] bg-black/[0.04] dark:bg-black/[0.20] p-2">
         <div className="flex items-center gap-3">
           <div className="w-11 h-11 rounded-full bg-black/[0.06] dark:bg-black/[0.20] flex items-center justify-center">
             <div className="w-2.5 h-2.5 rounded-full bg-gradient-to-br from-sky-500 dark:from-sky-500 to-fuchsia-500 dark:to-fuchsia-500" />
@@ -96,7 +97,7 @@ export default function Sidebar({
                 key={model.name}
                 onClick={() => onSelectModel(model.name)}
                 className={`
-                  w-full flex items-center gap-3 p-2 pr-4 rounded-[20px] transition-colors duration-150 text-left
+                  w-full flex items-center gap-3 p-2 pr-4 rounded-[28px] transition-colors duration-150 text-left
                   ${isActive
                     ? 'bg-black/[0.05] dark:bg-black/[0.20] border border-black/[0.06] dark:border-white/[0.14]'
                     : 'hover:bg-black/[0.04] dark:hover:bg-black/[0.14] border border-transparent'
