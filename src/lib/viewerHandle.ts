@@ -10,6 +10,9 @@ export type CameraView = 'front' | 'back' | 'left' | 'right' | 'top' | 'bottom' 
 
 export type SceneFormat = 'auto' | 'ply' | 'splat' | 'ksplat' | 'spz';
 
+/** Distance level-of-detail preset (WebGPU backend). */
+export type LodQuality = 'high' | 'balanced' | 'performance';
+
 export interface SceneLoadOptions {
   format?: SceneFormat;
   splatAlphaRemovalThreshold?: number;
@@ -24,6 +27,8 @@ export interface ViewerStats {
   splatCount: number;
   /** Splats submitted to the GPU last frame (after culling). */
   renderCount: number;
+  /** Splats skipped by distance LOD (0 when unsupported). */
+  lodCulled: number;
   fps: number | null;
   sortTimeMs: number;
   drawCalls: number | null;
@@ -59,8 +64,12 @@ export interface SplatViewerHandle {
   setGridVisible: (visible: boolean) => void;
   setAxesVisible: (visible: boolean) => void;
   setCameraView: (view: CameraView) => void;
-  /** Picture-in-picture debug camera; only the WebGL backend implements it. */
+  /** Picture-in-picture editor camera. */
   readonly supportsEditorView: boolean;
+  /** Distance LOD: far splats are thinned/enlarged to save GPU time. */
+  readonly supportsLod: boolean;
+  setLodQuality: (quality: LodQuality) => void;
+  getLodQuality: () => LodQuality;
   setEditorViewVisible: (visible: boolean) => void;
 }
 

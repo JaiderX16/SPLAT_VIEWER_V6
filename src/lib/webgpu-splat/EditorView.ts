@@ -3,6 +3,7 @@ import type { Draw, Frame, Gpu, Surface } from 'vgpu';
 import splatShader from './splat.wgsl';
 import helpersShader from './helpers.wgsl';
 import overlayShader from './overlay.wgsl';
+import { LOD_MAX_SCALE } from './protocol';
 import { cameraRay, lookAt, multiply, perspective, vec3, type Ray, type Vec3 } from './math';
 
 /** Picture-in-picture layout, shared with the CSS frame drawn by the host page. */
@@ -29,6 +30,7 @@ export interface MainCameraState {
   splatScale: number;
   pointCloud: boolean;
   visibleCount: number;
+  lodPacked: boolean;
 }
 
 export interface PixelRect {
@@ -149,6 +151,7 @@ export class EditorView {
         viewport: [rect.width, rect.height],
         focal: [(this.proj[0] * rect.width) / 2, (this.proj[5] * rect.height) / 2],
         params: [main.splatScale, main.pointCloud ? 1 : 0, 0, Math.tan((OVERVIEW_FOV_DEG * Math.PI) / 360) * Math.max(1, this.aspect)],
+        lod: [main.lodPacked ? 1 : 0, LOD_MAX_SCALE, 0, 0],
       },
     });
 

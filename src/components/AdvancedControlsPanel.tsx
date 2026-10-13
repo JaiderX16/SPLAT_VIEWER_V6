@@ -1,7 +1,13 @@
 import { useEffect, useState, useCallback, type RefObject } from 'react';
 import { Box, Grid3x3, Compass, Sun, Moon, X } from 'lucide-react';
 import { Slider } from '@/components/ui/slider';
-import type { CameraView, SplatViewerHandle } from '@/lib/viewerHandle';
+import type { CameraView, LodQuality, SplatViewerHandle } from '@/lib/viewerHandle';
+
+const LOD_OPTIONS: Array<{ value: LodQuality; label: string; title: string }> = [
+  { value: 'high', label: 'Alta', title: 'Sin LOD: todos los splats a calidad completa' },
+  { value: 'balanced', label: 'Media', title: 'LOD equilibrado: aligera los splats lejanos (< 1.25 px)' },
+  { value: 'performance', label: 'Rápida', title: 'LOD agresivo: máximo rendimiento en escenas grandes' },
+];
 
 const VIEW_PRESETS: Array<{ view: CameraView; label: string; title: string }> = [
   { view: 'front', label: 'Frente', title: 'Vista frontal (1)' },
@@ -33,6 +39,8 @@ export default function AdvancedControlsPanel({
   const [grid, setGrid] = useState(false);
   const [axes, setAxes] = useState(false);
   const [supportsSH, setSupportsSH] = useState(true);
+  const [supportsLod, setSupportsLod] = useState(false);
+  const [lod, setLod] = useState<LodQuality>('balanced');
 
   // Sync state from viewer when panel becomes visible
   useEffect(() => {
@@ -42,6 +50,8 @@ export default function AdvancedControlsPanel({
     setOrtho(viewer.getOrthographicMode());
     setFov(Math.round(viewer.getFov()));
     setSupportsSH(viewer.supportsSphericalHarmonics);
+    setSupportsLod(viewer.supportsLod);
+    setLod(viewer.getLodQuality());
   }, [visible, viewerRef]);
 
   const handleApplyView = useCallback((view: CameraView) => {
@@ -154,6 +164,30 @@ export default function AdvancedControlsPanel({
         )}
 
         {supportsSH && <div className="w-px h-5 bg-white/10" />}
+
+        {/* Distance LOD */}
+        {supportsLod && (
+          <>
+            <div className="flex items-center gap-1" role="group" aria-label="Calidad a distancia (LOD)">
+              <span className="text-[11px] text-white/50 mx-1">LOD</span>
+              {LOD_OPTIONS.map((option) => (
+                <button
+                  key={option.value}
+                  title={option.title}
+                  aria-pressed={lod === option.value}
+                  onClick={() => {
+                    setLod(option.value);
+                    viewerRef.current?.setLodQuality(option.value);
+                  }}
+                  className="pill"
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+            <div className="w-px h-5 bg-white/10" />
+          </>
+        )}
 
         {/* Background */}
         <button

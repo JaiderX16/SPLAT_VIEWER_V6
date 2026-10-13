@@ -5,7 +5,18 @@ import helpersShader from './helpers.wgsl';
 import { cameraRay, intersectPlane, lookAt, multiply, orthographic, perspective, vec3, type Ray, type Vec3 } from './math';
 import { EditorView, type PixelRect } from './EditorView';
 import { OrbitControls, type OrbitLimits } from './orbitControls';
-import { SPLAT_BYTES, type MainToWorker, type SceneTransform, type WorkerToMain } from './protocol';
+import { LOD_MAX_SCALE, SPLAT_BYTES, type LodParams, type MainToWorker, type SceneTransform, type WorkerToMain } from './protocol';
+
+/**
+ * Distance-LOD presets. `minPx`: projected radius (px) under which splats get
+ * thinned; `minKeep`: the smallest fraction kept for sub-pixel splats.
+ */
+export type LodQuality = 'high' | 'balanced' | 'performance';
+const LOD_PRESETS: Record<LodQuality, { minPx: number; minKeep: number }> = {
+  high: { minPx: 0, minKeep: 1 },
+  balanced: { minPx: 1.25, minKeep: 0.12 },
+  performance: { minPx: 2.5, minKeep: 0.06 },
+};
 
 export interface SplatRendererOptions {
   up: Vec3;
@@ -29,6 +40,8 @@ export interface SplatLoadOptions {
 export interface SplatRendererStats {
   splatCount: number;
   visibleCount: number;
+  /** Splats skipped by distance LOD in the last sort. */
+  lodCulled: number;
   fps: number | null;
   frameMs: number;
   sortMs: number;
@@ -119,6 +132,10 @@ export class SplatRenderer {
   private lastSortAt = 0;
   private dataSinceSort = false;
   private lastSortMs = 0;
+  private lodQuality: LodQuality = 'balanced';
+  private lodPacked = false;
+  private lodCulled = 0;
+  private forceSort = false;
   private readonly lastSortViewProj = new Float32Array(16);
 
   private readonly view = new Float32Array(16);
@@ -319,6 +336,7 @@ export class SplatRenderer {
 
   setPointCloud(enabled: boolean) {
     this.pointCloud = enabled;
+    this.forceSort = true;
     this.needsRender = true;
   }
 
@@ -360,6 +378,16 @@ export class SplatRenderer {
     this.needsRender = true;
   }
 
+  setLodQuality(quality: LodQuality) {
+    this.lodQuality = quality;
+    this.forceSort = true;
+    this.needsRender = true;
+  }
+
+  getLodQuality() {
+    return this.lodQuality;
+  }
+
   setEditorViewVisible(visible: boolean) {
     this.editor.visible = visible;
     this.needsRender = true;
@@ -388,6 +416,7 @@ export class SplatRenderer {
     return {
       splatCount: this.loadedCount,
       visibleCount: this.visibleCount,
+      lodCulled: this.lodCulled,
       fps: this.fps,
       frameMs: this.frameMs,
       sortMs: this.lastSortMs,
@@ -441,6 +470,7 @@ export class SplatRenderer {
         viewport: [w, h],
         focal: [(this.proj[0] * w) / 2, (this.proj[5] * h) / 2],
         params: [this.splatScale, this.pointCloud ? 1 : 0, this.ortho ? 1 : 0, tanHalf * Math.max(1, w / Math.max(h, 1))],
+        lod: [this.lodPacked ? 1 : 0, LOD_MAX_SCALE, 0, 0],
       },
     });
     const helperParams = { viewProj: this.viewProj, params: [GRID_HALF_SIZE, GRID_DIVISIONS, 1, 0] };
@@ -463,6 +493,7 @@ export class SplatRenderer {
         splatScale: this.splatScale,
         pointCloud: this.pointCloud,
         visibleCount: this.visibleCount,
+        lodPacked: this.lodPacked,
       });
     }
 
@@ -499,13 +530,23 @@ export class SplatRenderer {
       }
     }
     const streamingDue = this.dataSinceSort && now - this.lastSortAt > STREAMING_SORT_INTERVAL_MS;
-    if (!viewChanged && !streamingDue) return;
+    if (!viewChanged && !streamingDue && !this.forceSort) return;
+    this.forceSort = false;
     this.lastSortViewProj.set(this.viewProj);
     this.lastSortAt = now;
     this.dataSinceSort = false;
     this.sortInFlight = true;
     this.sortGeneration = this.generation;
-    this.post({ type: 'sort', viewProj: this.viewProj.slice(), view: this.view.slice() });
+    const [, h] = this.surf.size;
+    const preset = LOD_PRESETS[this.lodQuality];
+    const lod: LodParams = {
+      focalPx: (this.proj[5] * h) / 2,
+      ortho: this.ortho,
+      // Point-cloud dots have a fixed size, so thinning would only lose points.
+      minPx: this.pointCloud ? 0 : preset.minPx,
+      minKeep: preset.minKeep,
+    };
+    this.post({ type: 'sort', viewProj: this.viewProj.slice(), view: this.view.slice(), lod });
   }
 
   // ─── Worker / GPU memory ───────────────────────────────────────────────────
@@ -553,6 +594,8 @@ export class SplatRenderer {
           this.ensureOrderCapacity(visible);
           if (visible > 0) this.device.queue.writeBuffer(this.orderBuffer, 0, msg.order.buffer, msg.order.byteOffset, visible * 4);
           this.visibleCount = visible;
+          this.lodPacked = msg.packed;
+          this.lodCulled = msg.lodCulled;
           this.lastSortMs = msg.sortMs;
           this.needsRender = true;
         }

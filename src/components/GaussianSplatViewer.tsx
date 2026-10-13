@@ -107,6 +107,7 @@ function readStats(viewer: GaussianSplats3D.Viewer): ViewerStats | null {
     backend: 'webgl',
     splatCount: mesh.getSplatCount?.() || 0,
     renderCount: raw.splatRenderCount || 0,
+    lodCulled: 0,
     fps: typeof raw.currentFPS === 'number' ? raw.currentFPS : null,
     sortTimeMs: typeof raw.lastSortTime === 'number' ? raw.lastSortTime : 0,
     drawCalls: typeof calls === 'number' ? calls : null,
@@ -316,6 +317,9 @@ const GaussianSplatViewer = forwardRef<SplatViewerHandle, GaussianSplatViewerPro
       backend: 'webgl' as const,
       supportsSphericalHarmonics: true,
       supportsEditorView: true,
+      supportsLod: false,
+      setLodQuality: () => {},
+      getLodQuality: () => 'high' as const,
       addSplatScene: async (path: string, options: SceneLoadOptions = {}) => {
         const viewer = viewerRef.current;
         if (!viewer) throw new Error('Viewer not initialized');

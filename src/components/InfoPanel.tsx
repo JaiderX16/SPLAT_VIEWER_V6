@@ -13,6 +13,7 @@ export interface SceneInfo {
   splatScale: number;
   pointCloudMode: boolean;
   backend?: 'webgpu' | 'webgl';
+  lodCulled?: number;
 }
 
 interface InfoPanelProps {
@@ -97,6 +98,14 @@ export const InfoPanel: React.FC<InfoPanelProps> = ({ info, visible, onToggle })
           </span>
           <span className="font-mono text-xs">{info.splatRenderCount.toLocaleString()} ({splatRenderPct}%)</span>
         </div>
+        {info.lodCulled !== undefined && info.lodCulled > 0 && (
+          <div className="flex items-center justify-between">
+            <span className="text-white/50 flex items-center gap-1.5">
+              <Layers className="w-3.5 h-3.5" /> LOD (omitidos)
+            </span>
+            <span className="font-mono text-xs">{info.lodCulled.toLocaleString()}</span>
+          </div>
+        )}
         <div className="flex items-center justify-between">
           <span className="text-white/50 flex items-center gap-1.5">
             <Clock className="w-3.5 h-3.5" /> Sort Time

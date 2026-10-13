@@ -210,6 +210,7 @@ export default function Home() {
     setSceneInfo({
       splatCount: stats.splatCount,
       splatRenderCount: stats.renderCount,
+      lodCulled: stats.lodCulled,
       fps: stats.fps,
       cameraPosition: fmt3(stats.cameraPosition),
       cameraLookAt: fmt3(stats.cameraTarget),

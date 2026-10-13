@@ -85,6 +85,9 @@ const WebGPUSplatViewer = forwardRef<SplatViewerHandle, WebGPUSplatViewerProps>(
       backend: 'webgpu',
       supportsSphericalHarmonics: false,
       supportsEditorView: true,
+      supportsLod: true,
+      setLodQuality: (quality) => rendererRef.current?.setLodQuality(quality),
+      getLodQuality: () => rendererRef.current?.getLodQuality() ?? 'balanced',
       addSplatScene: async (path: string, options: SceneLoadOptions = {}) => {
         const ready = readyRef.current;
         if (!ready) throw new Error('Viewer not initialized');
@@ -135,6 +138,7 @@ const WebGPUSplatViewer = forwardRef<SplatViewerHandle, WebGPUSplatViewerProps>(
           backend: 'webgpu',
           splatCount: s.splatCount,
           renderCount: s.visibleCount,
+          lodCulled: s.lodCulled,
           fps: s.fps,
           sortTimeMs: s.sortMs,
           drawCalls: s.drawCalls,

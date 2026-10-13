@@ -12,6 +12,10 @@
  */
 import {
   COVARIANCE_PACK_SCALE,
+  LOD_INDEX_BITS,
+  LOD_MAX_PACKED_SPLATS,
+  LOD_MAX_SCALE,
+  type LodParams,
   SPLAT_FILE_RECORD_BYTES,
   SPLAT_WORDS,
   type MainToWorker,
@@ -38,10 +42,12 @@ let abortController: AbortController | null = null;
 let positions = new Float32Array(0);
 /** Per-splat opacity (0–255), used to ignore faint floaters when picking. */
 let alphas = new Uint8Array(0);
+/** Per-splat world radius (largest 1σ axis), for screen-size LOD. */
+let radii = new Float32Array(0);
 let splatCount = 0;
 
 let order: Uint32Array | null = new Uint32Array(0);
-let pendingSort: { viewProj: Float32Array; view: Float32Array } | null = null;
+let pendingSort: { viewProj: Float32Array; view: Float32Array; lod: LodParams } | null = null;
 let depthScratch = new Float32Array(0);
 let indexScratch = new Uint32Array(0);
 let keyScratch = new Uint16Array(0);
@@ -113,6 +119,9 @@ function ensurePositionCapacity(splats: number) {
   const nextAlphas = new Uint8Array(capacity);
   nextAlphas.set(alphas.subarray(0, splatCount));
   alphas = nextAlphas;
+  const nextRadii = new Float32Array(capacity);
+  nextRadii.set(radii.subarray(0, splatCount));
+  radii = nextRadii;
 }
 
 /** Parses whole records in `bytes` and returns the packed GPU words. */
@@ -198,6 +207,7 @@ function parseRecords(bytes: Uint8Array, alphaThreshold: number, affine: Affine 
     packed[o + 7] = 0;
 
     alphas[splatCount + kept] = alpha;
+    radii[splatCount + kept] = Math.sqrt(Math.max(cov[0], cov[3], cov[5]));
     const p = (splatCount + kept) * 3;
     positions[p] = x;
     positions[p + 1] = y;
@@ -221,6 +231,7 @@ async function load(url: string, alphaThreshold: number, transform: SceneTransfo
   abortController = new AbortController();
   positions = new Float32Array(0);
   alphas = new Uint8Array(0);
+  radii = new Float32Array(0);
   splatCount = 0;
   bounds.min = [Infinity, Infinity, Infinity];
   bounds.max = [-Infinity, -Infinity, -Infinity];
@@ -288,7 +299,16 @@ async function load(url: string, alphaThreshold: number, transform: SceneTransfo
 }
 
 // ─── Sorting ──────────────────────────────────────────────────────────────────
-function sort(viewProj: Float32Array, view: Float32Array) {
+/** Stable per-splat random number in [0, 1) (murmur3 finalizer). */
+function hash01(i: number) {
+  let h = Math.imul(i ^ 0x9e3779b9, 0x85ebca6b);
+  h ^= h >>> 13;
+  h = Math.imul(h, 0xc2b2ae35);
+  h ^= h >>> 16;
+  return (h >>> 0) / 4294967296;
+}
+
+function sort(viewProj: Float32Array, view: Float32Array, lod: LodParams) {
   const start = performance.now();
   const n = splatCount;
   if (!order || order.length < n) order = new Uint32Array(Math.max(n, positions.length / 3));
@@ -302,6 +322,10 @@ function sort(viewProj: Float32Array, view: Float32Array) {
   const p = positions;
   const dz0 = view[2], dz1 = view[6], dz2 = view[10], dz3 = view[14];
   let visible = 0;
+  let lodCulled = 0;
+  const packed = n <= LOD_MAX_PACKED_SPLATS;
+  const lodOn = packed && lod.minPx > 0;
+  const lodScaleToByte = 255 / (LOD_MAX_SCALE - 1);
   let minDepth = Infinity;
   let maxDepth = -Infinity;
 
@@ -316,8 +340,25 @@ function sort(viewProj: Float32Array, view: Float32Array) {
     if (cx < -lim || cx > lim) continue;
     const cy = vp[1] * x + vp[5] * y + vp[9] * z + vp[13];
     if (cy < -lim || cy > lim) continue;
+
+    // Distance LOD: thin splats that cover only a pixel or two. The hash makes
+    // the choice stable, so approaching a region only ever adds splats.
+    let lodByte = 0;
+    if (lodOn) {
+      const px = (radii[i] * lod.focalPx) / (lod.ortho ? 1 : -d);
+      if (px < lod.minPx) {
+        const keep = Math.max(lod.minKeep, px / lod.minPx);
+        if (hash01(i) >= keep) {
+          lodCulled++;
+          continue;
+        }
+        const grow = Math.min(LOD_MAX_SCALE, 1 / Math.sqrt(keep)); // area ∝ 1/keep
+        lodByte = Math.round((grow - 1) * lodScaleToByte);
+      }
+    }
+
     depthScratch[visible] = d;
-    indexScratch[visible] = i;
+    indexScratch[visible] = packed ? (i | (lodByte << LOD_INDEX_BITS)) >>> 0 : i;
     if (d < minDepth) minDepth = d;
     if (d > maxDepth) maxDepth = d;
     visible++;
@@ -344,14 +385,14 @@ function sort(viewProj: Float32Array, view: Float32Array) {
 
   const out = order;
   order = null; // lent to the main thread until it is recycled
-  post({ type: 'sorted', order: out, visible, sortMs: performance.now() - start }, [out.buffer]);
+  post({ type: 'sorted', order: out, visible, sortMs: performance.now() - start, packed, lodCulled }, [out.buffer]);
 }
 
 function runPendingSort() {
   if (!pendingSort || !order || splatCount === 0) return;
-  const { viewProj, view } = pendingSort;
+  const { viewProj, view, lod } = pendingSort;
   pendingSort = null;
-  sort(viewProj, view);
+  sort(viewProj, view, lod);
 }
 
 // ─── Picking ──────────────────────────────────────────────────────────────────
@@ -398,7 +439,7 @@ ctx.onmessage = (event: MessageEvent<MainToWorker>) => {
       pendingSort = null;
       break;
     case 'sort':
-      pendingSort = { viewProj: msg.viewProj, view: msg.view };
+      pendingSort = { viewProj: msg.viewProj, view: msg.view, lod: msg.lod };
       runPendingSort();
       break;
     case 'recycle':

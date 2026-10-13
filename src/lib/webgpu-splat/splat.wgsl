@@ -14,10 +14,13 @@ struct Camera {
   focal: vec2f,
   // x: splat scale, y: point-cloud mode (0/1), z: orthographic (0/1), w: tan(fov/2) clamp
   params: vec4f,
+  // x: order entries are LOD-packed (0/1), y: LOD_MAX_SCALE
+  lod: vec4f,
 }
 
 @group(0) @binding(0) var<uniform> camera: Camera;
 // 2 × vec4u per splat — layout documented in protocol.ts.
+// `order` entries: splat index (low 24 bits) | LOD footprint scale (top 8 bits).
 @group(0) @binding(1) var<storage, read> splats: array<vec4u>;
 @group(0) @binding(2) var<storage, read> order: array<u32>;
 
@@ -41,7 +44,11 @@ fn culled() -> VertexOut {
 
 @vertex
 fn vs_main(@builtin(vertex_index) vertexIndex: u32, @builtin(instance_index) instanceIndex: u32) -> VertexOut {
-  let index = order[instanceIndex];
+  let entry = order[instanceIndex];
+  let packed = camera.lod.x > 0.5;
+  let index = select(entry, entry & 0xFFFFFFu, packed);
+  // Thinned far splats are drawn larger so the covered area is preserved.
+  let lodScale = select(1.0, 1.0 + f32(entry >> 24u) / 255.0 * (camera.lod.y - 1.0), packed);
   let a = splats[index * 2u];
   let b = splats[index * 2u + 1u];
 
@@ -119,8 +126,8 @@ fn vs_main(@builtin(vertex_index) vertexIndex: u32, @builtin(instance_index) ins
     let dv = vec2f(cb, lambda1 - ca);
     let dl = length(dv);
     let diag = select(vec2f(1.0, 0.0), dv / dl, dl > 1e-8);
-    major = min(sqrt(2.0 * lambda1), MAX_AXIS_PX) * diag;
-    minor = min(sqrt(2.0 * lambda2), MAX_AXIS_PX) * vec2f(diag.y, -diag.x);
+    major = min(sqrt(2.0 * lambda1) * lodScale, MAX_AXIS_PX) * diag;
+    minor = min(sqrt(2.0 * lambda2) * lodScale, MAX_AXIS_PX) * vec2f(diag.y, -diag.x);
   }
 
   // Two triangles: (-2,-2) (2,-2) (2,2) | (-2,-2) (2,2) (-2,2)

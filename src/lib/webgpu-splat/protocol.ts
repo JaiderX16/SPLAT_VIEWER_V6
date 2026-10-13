@@ -39,6 +39,7 @@ export type MainToWorker =
       viewProj: Float32Array;
       /** Column-major view matrix (only the depth row is used). */
       view: Float32Array;
+      lod: LodParams;
     }
   /** Hands an order buffer back after its contents were uploaded to the GPU. */
   | { type: 'recycle'; order: Uint32Array }
@@ -56,6 +57,26 @@ export type MainToWorker =
       coneRadius: number;
     };
 
+/**
+ * Distance LOD: splats whose projected radius is below `minPx` pixels are
+ * thinned to a stable, hash-selected fraction (never below `minKeep`), and the
+ * survivors are enlarged so the covered area stays the same.
+ */
+export interface LodParams {
+  /** Pixels per world unit at depth 1 (perspective) or per world unit (orthographic). */
+  focalPx: number;
+  ortho: boolean;
+  /** 0 disables LOD. */
+  minPx: number;
+  minKeep: number;
+}
+
+/** Largest footprint enlargement for thinned splats (must match the shader decode). */
+export const LOD_MAX_SCALE = 4;
+/** Order entries carry the splat index in the low 24 bits and the LOD scale in the top 8. */
+export const LOD_INDEX_BITS = 24;
+export const LOD_MAX_PACKED_SPLATS = (1 << LOD_INDEX_BITS) - 1;
+
 export type WorkerToMain =
   /** `capacity` is an upper bound (file size / 32) or 0 when unknown. */
   | { type: 'begin'; capacity: number }
@@ -67,6 +88,15 @@ export type WorkerToMain =
       count: number;
       bounds: { min: [number, number, number]; max: [number, number, number] };
     }
-  | { type: 'sorted'; order: Uint32Array; visible: number; sortMs: number }
+  | {
+      type: 'sorted';
+      order: Uint32Array;
+      visible: number;
+      sortMs: number;
+      /** True when entries are LOD-packed (index | scale << 24). */
+      packed: boolean;
+      /** Splats skipped by distance LOD this sort. */
+      lodCulled: number;
+    }
   | { type: 'picked'; id: number; point: [number, number, number] | null }
   | { type: 'error'; message: string };
