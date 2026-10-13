@@ -51,7 +51,7 @@ export interface PixelRect {
 /** Editor chrome colors per UI theme (references/palette.md, renderer floats). */
 const EDITOR_COLORS = {
   // Light = frost glass (pale overlay, cyan-600 frustum, dark grid lines).
-  light: { background: [0.878, 0.878, 0.894, 1], frustum: [0.031, 0.569, 0.698, 1], darkGridLines: 1 },
+  light: { background: [0.745, 0.745, 0.765, 1], frustum: [0.031, 0.569, 0.698, 1], darkGridLines: 1 },
   // Dark = smoke glass (graphite overlay, cyan-300 frustum, light grid lines).
   dark: { background: [0.4, 0.4, 0.41, 1], frustum: [0.4, 0.91, 0.976, 1], darkGridLines: 0 },
 } as const;

@@ -154,7 +154,7 @@ export default function Home() {
   // the user flips it from the advanced panel; then it stays as chosen.
   const [sceneBgOverride, setSceneBgOverride] = useState<'light' | 'dark' | null>(null);
   const sceneLight = (sceneBgOverride ?? theme) === 'light';
-  const sceneBackground = sceneLight ? '#e9e9ec' : '#000000';
+  const sceneBackground = sceneLight ? '#c8c8cd' : '#000000';
 
   // ─── Backend selection ─────────────────────────────────────────────────────
   useEffect(() => {
@@ -449,7 +449,7 @@ export default function Home() {
   };
 
   return (
-    <div className="relative w-screen h-[100dvh] overflow-hidden bg-[#e9e9ec] dark:bg-black">
+    <div className="relative w-screen h-[100dvh] overflow-hidden bg-[#c8c8cd] dark:bg-black">
       {/* ── Minimal top progress bar ── */}
       {downloading && (
         <div className="absolute top-0 left-0 right-0 z-[100] pointer-events-none">
@@ -530,7 +530,7 @@ export default function Home() {
             role="group"
             aria-label="Escala de splats"
           >
-            <span className="pill-btn pointer-events-none !text-[#5a5a5f] dark:text-white/85" aria-hidden>
+            <span className="pill-btn pointer-events-none !text-[#46464b] dark:text-white/85" aria-hidden>
               <Settings2 className="w-4 h-4" />
             </span>
             <button className="pill-btn" onClick={() => applySplatScale(splatScale - 0.05)} aria-label="Reducir escala">
@@ -548,7 +548,7 @@ export default function Home() {
             <button className="pill-btn" onClick={() => applySplatScale(splatScale + 0.05)} aria-label="Aumentar escala">
               <Plus className="w-3.5 h-3.5" />
             </button>
-            <span className="text-neutral-600 dark:text-white/85 text-xs font-mono w-10 pr-3 text-right tabular-nums">{splatScale.toFixed(2)}</span>
+            <span className="text-neutral-800 dark:text-white/85 text-xs font-mono w-10 pr-3 text-right tabular-nums">{splatScale.toFixed(2)}</span>
           </div>
         )}
       </main>
@@ -645,7 +645,7 @@ export default function Home() {
       {/* ── Editor view frame: matches the GPU picture-in-picture rect (30%, min 120px, 12px margin) ── */}
       {editorView && (
         <div className="absolute bottom-3 right-3 w-[30%] h-[30%] min-w-[120px] min-h-[120px] pointer-events-none border border-cyan-600 dark:border-cyan-300/60 rounded-[4px] z-[200]">
-          <span className="absolute -top-8 right-0 glass rounded-full px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-cyan-800 dark:text-cyan-200 whitespace-nowrap">
+          <span className="absolute -top-8 right-0 glass rounded-full px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-cyan-900 dark:text-cyan-200 whitespace-nowrap">
             {backend === 'webgpu' ? 'Vista editor · clic para navegar' : 'Vista editor'}
           </span>
         </div>

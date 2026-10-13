@@ -27,10 +27,10 @@ export const InfoPanel: React.FC<InfoPanelProps> = ({ info, visible, onToggle })
 
   if (!info) {
     return (
-      <div className="absolute top-4 right-[5.5rem] md:top-6 md:right-[6.5rem] z-40 glass panel text-[#5a5a5f] dark:text-white/85 text-sm min-w-[280px]">
+      <div className="absolute top-4 right-[5.5rem] md:top-6 md:right-[6.5rem] z-40 glass panel text-[#46464b] dark:text-white/85 text-sm min-w-[280px]">
         <div className="flex items-center justify-between mb-2 pl-2">
-          <span className="font-semibold text-neutral-600 dark:text-white/85">Escena</span>
-          <Button onClick={onToggle} variant="ghost" size="icon" className="h-8 w-8 rounded-full text-[#5a5a5f] dark:text-white/85 hover:text-neutral-900 dark:hover:text-white hover:bg-black/[0.06] dark:hover:bg-black/[0.14]">
+          <span className="font-semibold text-neutral-800 dark:text-white/85">Escena</span>
+          <Button onClick={onToggle} variant="ghost" size="icon" className="h-8 w-8 rounded-full text-[#46464b] dark:text-white/85 hover:text-neutral-900 dark:hover:text-white hover:bg-black/[0.06] dark:hover:bg-black/[0.14]">
             <X className="w-4 h-4" />
           </Button>
         </div>
@@ -42,37 +42,37 @@ export const InfoPanel: React.FC<InfoPanelProps> = ({ info, visible, onToggle })
   const splatRenderPct = info.splatCount > 0 ? (info.splatRenderCount / info.splatCount * 100).toFixed(1) : '0.0';
 
   return (
-    <div className="absolute top-4 right-[5.5rem] md:top-6 md:right-[6.5rem] z-40 glass panel text-neutral-700 dark:text-white text-sm min-w-[280px]">
+    <div className="absolute top-4 right-[5.5rem] md:top-6 md:right-[6.5rem] z-40 glass panel text-neutral-800 dark:text-white text-sm min-w-[280px]">
       <div className="flex items-center justify-between mb-2 pl-2">
         <span className="font-semibold text-neutral-900 dark:text-white flex items-center gap-2">
-          <Grid3X3 className="w-4 h-4 text-sky-800 dark:text-sky-100" />
+          <Grid3X3 className="w-4 h-4 text-sky-900 dark:text-sky-100" />
           Escena
           {info.backend && (
-            <span className="rounded-full bg-black/[0.05] dark:bg-black/[0.20] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-neutral-600 dark:text-white/85">
+            <span className="rounded-full bg-black/[0.05] dark:bg-black/[0.20] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-neutral-800 dark:text-white/85">
               {info.backend === 'webgpu' ? 'WebGPU' : 'WebGL'}
             </span>
           )}
         </span>
-        <Button onClick={onToggle} variant="ghost" size="icon" className="h-8 w-8 rounded-full text-[#5a5a5f] dark:text-white/85 hover:text-neutral-900 dark:hover:text-white hover:bg-black/[0.06] dark:hover:bg-black/[0.14]">
+        <Button onClick={onToggle} variant="ghost" size="icon" className="h-8 w-8 rounded-full text-[#46464b] dark:text-white/85 hover:text-neutral-900 dark:hover:text-white hover:bg-black/[0.06] dark:hover:bg-black/[0.14]">
           <X className="w-4 h-4" />
         </Button>
       </div>
 
       <div className="panel-inner bg-black/[0.04] dark:bg-black/[0.20] p-3 space-y-2.5">
         <div className="flex items-center justify-between">
-          <span className="text-[#5a5a5f] dark:text-white/85 flex items-center gap-1.5">
+          <span className="text-[#46464b] dark:text-white/85 flex items-center gap-1.5">
             <Camera className="w-3.5 h-3.5" /> Position
           </span>
           <span className="font-mono text-xs">{info.cameraPosition}</span>
         </div>
         <div className="flex items-center justify-between">
-          <span className="text-[#5a5a5f] dark:text-white/85 flex items-center gap-1.5">
+          <span className="text-[#46464b] dark:text-white/85 flex items-center gap-1.5">
             <Target className="w-3.5 h-3.5" /> Look At
           </span>
           <span className="font-mono text-xs">{info.cameraLookAt}</span>
         </div>
         <div className="flex items-center justify-between">
-          <span className="text-[#5a5a5f] dark:text-white/85 flex items-center gap-1.5">
+          <span className="text-[#46464b] dark:text-white/85 flex items-center gap-1.5">
             <ArrowUp className="w-3.5 h-3.5" /> Up
           </span>
           <span className="font-mono text-xs">{info.cameraUp}</span>
@@ -81,43 +81,43 @@ export const InfoPanel: React.FC<InfoPanelProps> = ({ info, visible, onToggle })
         <div className="border-t border-black/[0.06] dark:border-white/[0.14] my-2" />
 
         <div className="flex items-center justify-between">
-          <span className="text-[#5a5a5f] dark:text-white/85 flex items-center gap-1.5">
+          <span className="text-[#46464b] dark:text-white/85 flex items-center gap-1.5">
             <Zap className="w-3.5 h-3.5" /> FPS
           </span>
           <span className="font-mono text-xs">{info.fps ?? 'N/A'}</span>
         </div>
         <div className="flex items-center justify-between">
-          <span className="text-[#5a5a5f] dark:text-white/85 flex items-center gap-1.5">
+          <span className="text-[#46464b] dark:text-white/85 flex items-center gap-1.5">
             <Layers className="w-3.5 h-3.5" /> Splats
           </span>
           <span className="font-mono text-xs">{info.splatCount.toLocaleString()}</span>
         </div>
         <div className="flex items-center justify-between">
-          <span className="text-[#5a5a5f] dark:text-white/85 flex items-center gap-1.5">
+          <span className="text-[#46464b] dark:text-white/85 flex items-center gap-1.5">
             <Maximize2 className="w-3.5 h-3.5" /> Rendered
           </span>
           <span className="font-mono text-xs">{info.splatRenderCount.toLocaleString()} ({splatRenderPct}%)</span>
         </div>
         {info.lodCulled !== undefined && info.lodCulled > 0 && (
           <div className="flex items-center justify-between">
-            <span className="text-[#5a5a5f] dark:text-white/85 flex items-center gap-1.5">
+            <span className="text-[#46464b] dark:text-white/85 flex items-center gap-1.5">
               <Layers className="w-3.5 h-3.5" /> LOD (omitidos)
             </span>
             <span className="font-mono text-xs">{info.lodCulled.toLocaleString()}</span>
           </div>
         )}
         <div className="flex items-center justify-between">
-          <span className="text-[#5a5a5f] dark:text-white/85 flex items-center gap-1.5">
+          <span className="text-[#46464b] dark:text-white/85 flex items-center gap-1.5">
             <Clock className="w-3.5 h-3.5" /> Sort Time
           </span>
           <span className="font-mono text-xs">{info.sortTime.toFixed(2)} ms</span>
         </div>
         <div className="flex items-center justify-between">
-          <span className="text-[#5a5a5f] dark:text-white/85">Splat Scale</span>
+          <span className="text-[#46464b] dark:text-white/85">Splat Scale</span>
           <span className="font-mono text-xs">{info.splatScale.toFixed(2)}</span>
         </div>
         <div className="flex items-center justify-between">
-          <span className="text-[#5a5a5f] dark:text-white/85">Point Cloud Mode</span>
+          <span className="text-[#46464b] dark:text-white/85">Point Cloud Mode</span>
           <span className="font-mono text-xs">{info.pointCloudMode ? 'On' : 'Off'}</span>
         </div>
       </div>

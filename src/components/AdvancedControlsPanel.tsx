@@ -130,7 +130,7 @@ export default function AdvancedControlsPanel({
 
         {/* FOV */}
         <div className="flex items-center gap-2 px-2">
-          <span className="text-[11px] font-mono text-[#5a5a5f] dark:text-white/85">FOV</span>
+          <span className="text-[11px] font-mono text-[#46464b] dark:text-white/85">FOV</span>
           <Slider
             value={[fov]}
             onValueChange={handleFovChange}
@@ -139,7 +139,7 @@ export default function AdvancedControlsPanel({
             step={1}
             className="w-28"
           />
-          <span className="text-[11px] font-mono text-neutral-600 dark:text-white/85 w-8 text-right">{fov}°</span>
+          <span className="text-[11px] font-mono text-neutral-800 dark:text-white/85 w-8 text-right">{fov}°</span>
         </div>
 
         <div className="w-px h-5 bg-black/[0.06] dark:bg-black/[0.20]" />
@@ -147,7 +147,7 @@ export default function AdvancedControlsPanel({
         {/* SH quality (the WebGPU .splat path has no SH data) */}
         {supportsSH && (
         <div className="flex items-center gap-1">
-          <span className="text-[11px] text-[#5a5a5f] dark:text-white/85 mr-1">SH</span>
+          <span className="text-[11px] text-[#46464b] dark:text-white/85 mr-1">SH</span>
           {SH_DEGREES.map((deg) => (
             <button
               key={deg}
@@ -167,7 +167,7 @@ export default function AdvancedControlsPanel({
         {supportsLod && (
           <>
             <div className="flex items-center gap-1" role="group" aria-label="Calidad a distancia (LOD)">
-              <span className="text-[11px] text-[#5a5a5f] dark:text-white/85 mx-1">LOD</span>
+              <span className="text-[11px] text-[#46464b] dark:text-white/85 mx-1">LOD</span>
               {LOD_OPTIONS.map((option) => (
                 <button
                   key={option.value}

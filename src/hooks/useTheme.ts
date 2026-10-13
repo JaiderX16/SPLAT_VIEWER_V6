@@ -4,7 +4,7 @@ export type Theme = 'light' | 'dark';
 
 /** Shared with the pre-paint script in index.html. */
 const STORAGE_KEY = 'memoria-theme';
-const THEME_COLOR: Record<Theme, string> = { light: '#e9e9ec', dark: '#0a0a0c' };
+const THEME_COLOR: Record<Theme, string> = { light: '#c8c8cd', dark: '#0a0a0c' };
 
 function readTheme(): Theme {
   return document.documentElement.classList.contains('dark') ? 'dark' : 'light';

@@ -145,7 +145,7 @@ const ClearButton = ({ onClear }: { onClear: (e: React.MouseEvent) => void }) =>
     type="button"
     aria-label="Limpiar búsqueda"
     onClick={onClear}
-    className="p-1 rounded-full hover:bg-black/[0.06] dark:hover:bg-black/[0.14] text-neutral-600 dark:text-white/85 transition-colors"
+    className="p-1 rounded-full hover:bg-black/[0.06] dark:hover:bg-black/[0.14] text-neutral-800 dark:text-white/85 transition-colors"
   >
     <X size={16} />
   </button>
@@ -219,7 +219,7 @@ const SearchBar = ({
           aria-label={isExpanded ? 'Cerrar búsqueda' : 'Buscar'}
           className={`transition-all duration-700 flex items-center justify-center shrink-0 ${
             isExpanded ? 'pr-2' : 'pr-3'
-          } text-neutral-600 dark:text-white/85`}
+          } text-neutral-800 dark:text-white/85`}
           onClick={handleBackClick}
         >
           {isExpanded ? <ArrowLeft size={20} /> : <Search size={22} />}
@@ -241,8 +241,8 @@ const SearchBar = ({
             !isExpanded ? 'pointer-events-none select-none' : ''
           } ${
             isExpanded
-              ? 'text-neutral-900 dark:text-white placeholder:text-[#5a5a5f] dark:placeholder:text-white/70'
-              : 'text-neutral-600 dark:text-white/85 placeholder:text-[#5a5a5f] dark:placeholder:text-white/70'
+              ? 'text-neutral-900 dark:text-white placeholder:text-[#46464b] dark:placeholder:text-white/70'
+              : 'text-neutral-800 dark:text-white/85 placeholder:text-[#46464b] dark:placeholder:text-white/70'
           }`}
         />
 
@@ -255,7 +255,7 @@ const SearchBar = ({
           {value ? (
             <ClearButton onClear={handleClear} />
           ) : (
-            <Search size={18} className="text-[#5a5a5f] dark:text-white/85" aria-hidden />
+            <Search size={18} className="text-[#46464b] dark:text-white/85" aria-hidden />
           )}
         </div>
       </div>
@@ -310,18 +310,18 @@ const ModelItem = ({ model, index, isActive, onSelect }: ModelItemProps) => {
       <div
         className={`
           w-8 h-8 rounded-full flex items-center justify-center text-[10px] font-bold
-          ${isActive ? 'bg-black/[0.06] dark:bg-black/[0.20] text-neutral-900 dark:text-white' : 'bg-black/[0.04] dark:bg-black/[0.20] text-[#5a5a5f] dark:text-white/85'}
+          ${isActive ? 'bg-black/[0.06] dark:bg-black/[0.20] text-neutral-900 dark:text-white' : 'bg-black/[0.04] dark:bg-black/[0.20] text-[#46464b] dark:text-white/85'}
         `}
       >
         {num}
       </div>
       <div className="flex-1 min-w-0">
         <div
-          className={`text-sm font-medium truncate ${isActive ? 'text-neutral-900 dark:text-white' : 'text-neutral-600 dark:text-white/85'}`}
+          className={`text-sm font-medium truncate ${isActive ? 'text-neutral-900 dark:text-white' : 'text-neutral-800 dark:text-white/85'}`}
         >
           {model.name}
         </div>
-        <div className="text-[10px] text-[#5a5a5f] dark:text-white/85 font-medium uppercase tracking-wider mt-0.5">
+        <div className="text-[10px] text-[#46464b] dark:text-white/85 font-medium uppercase tracking-wider mt-0.5">
           Splat
         </div>
       </div>
@@ -466,7 +466,7 @@ const SidebarMobileSheet = ({
       role="dialog"
       aria-modal="true"
       aria-label="Scene library"
-      className={`absolute left-1/2 z-[900] bg-[#e8e8ec]/[0.86] dark:bg-[#1e1e20]/[0.78] backdrop-blur-[28px] border border-black/[0.06] dark:border-white/[0.14] overflow-hidden shadow-[0_-10px_50px_rgba(0,0,0,0.5)] flex flex-col pointer-events-auto ${transitionClass} ${className}`}
+      className={`absolute left-1/2 z-[900] bg-[#c7c7cc]/[0.72] dark:bg-[#1e1e20]/[0.78] backdrop-blur-[28px] border border-black/[0.06] dark:border-white/[0.14] overflow-hidden shadow-[0_-10px_50px_rgba(0,0,0,0.5)] flex flex-col pointer-events-auto ${transitionClass} ${className}`}
       style={{
         bottom: `${geometry.bottom}px`,
         height: `${currentH}px`,
@@ -510,7 +510,7 @@ const SidebarMobileSheet = ({
       >
         {/* Header */}
         <div className="mb-3 px-1">
-          <span className="text-[10px] font-bold tracking-[0.15em] uppercase text-[#5a5a5f] dark:text-white/85">
+          <span className="text-[10px] font-bold tracking-[0.15em] uppercase text-[#46464b] dark:text-white/85">
             Scene Library
           </span>
         </div>
@@ -527,7 +527,7 @@ const SidebarMobileSheet = ({
             />
           ))}
           {q && filteredModels.length === 0 && (
-            <div className="text-center py-8 text-[#5a5a5f] dark:text-white/85 text-sm">
+            <div className="text-center py-8 text-[#46464b] dark:text-white/85 text-sm">
               No scenes found
             </div>
           )}
@@ -540,7 +540,7 @@ const SidebarMobileSheet = ({
               onUpload?.();
               onSheetStateChange('idle');
             }}
-            className="w-full flex items-center justify-center gap-2 h-12 rounded-full bg-black/[0.04] dark:bg-black/[0.20] border border-black/[0.06] dark:border-white/[0.14] text-[#5a5a5f] dark:text-white/85 hover:text-neutral-900 dark:hover:text-white hover:bg-black/[0.06] dark:hover:bg-black/[0.14] hover:border-black/[0.10] dark:hover:border-white/[0.28] transition-all duration-150"
+            className="w-full flex items-center justify-center gap-2 h-12 rounded-full bg-black/[0.04] dark:bg-black/[0.20] border border-black/[0.06] dark:border-white/[0.14] text-[#46464b] dark:text-white/85 hover:text-neutral-900 dark:hover:text-white hover:bg-black/[0.06] dark:hover:bg-black/[0.14] hover:border-black/[0.10] dark:hover:border-white/[0.28] transition-all duration-150"
           >
             <Upload className="w-4 h-4" />
             <span className="text-xs font-semibold tracking-wider uppercase">

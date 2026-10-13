@@ -101,7 +101,7 @@ export const SceneUploader: React.FC<SceneUploaderProps> = ({ onLoadFile, onLoad
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
         className={`relative border-2 border-dashed rounded-2xl p-10 text-center transition-all duration-300 cursor-pointer
-          ${dragOver ? 'border-sky-600 dark:border-sky-200 bg-black/[0.05] dark:bg-black/[0.20] scale-[1.02]' : 'border-black/[0.10] dark:border-white/[0.18] bg-black/[0.04] dark:bg-black/[0.20] hover:border-black/[0.16] dark:hover:border-white/[0.28] hover:bg-black/[0.06] dark:hover:bg-black/[0.14]'}
+          ${dragOver ? 'border-sky-700 dark:border-sky-200 bg-black/[0.05] dark:bg-black/[0.20] scale-[1.02]' : 'border-black/[0.10] dark:border-white/[0.18] bg-black/[0.04] dark:bg-black/[0.20] hover:border-black/[0.16] dark:hover:border-white/[0.28] hover:bg-black/[0.06] dark:hover:bg-black/[0.14]'}
         `}
       >
         <input
@@ -110,14 +110,14 @@ export const SceneUploader: React.FC<SceneUploaderProps> = ({ onLoadFile, onLoad
           onChange={handleFileChange}
           className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
         />
-        <FileUp className="w-10 h-10 mx-auto mb-3 text-neutral-600 dark:text-white/85" />
-        <p className="text-neutral-700 dark:text-white font-medium mb-1">Drop a .ply, .splat, .ksplat, or .spz file here</p>
-        <p className="text-[#5a5a5f] dark:text-white/85 text-sm">or click to browse</p>
+        <FileUp className="w-10 h-10 mx-auto mb-3 text-neutral-800 dark:text-white/85" />
+        <p className="text-neutral-800 dark:text-white font-medium mb-1">Drop a .ply, .splat, .ksplat, or .spz file here</p>
+        <p className="text-[#46464b] dark:text-white/85 text-sm">or click to browse</p>
       </div>
 
       {/* URL Input */}
       <form onSubmit={handleURLSubmit} className="space-y-3">
-        <div className="flex items-center gap-2 text-neutral-600 dark:text-white/85">
+        <div className="flex items-center gap-2 text-neutral-800 dark:text-white/85">
           <Globe className="w-4 h-4" />
           <span className="text-sm font-medium">Load from URL</span>
         </div>
@@ -127,7 +127,7 @@ export const SceneUploader: React.FC<SceneUploaderProps> = ({ onLoadFile, onLoad
             placeholder="https://example.com/scene.splat"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
-            className="flex-1 bg-black/[0.04] dark:bg-black/[0.20] border-black/[0.10] dark:border-white/[0.18] text-neutral-900 dark:text-white placeholder:text-[#5a5a5f] dark:placeholder:text-white/70"
+            className="flex-1 bg-black/[0.04] dark:bg-black/[0.20] border-black/[0.10] dark:border-white/[0.18] text-neutral-900 dark:text-white placeholder:text-[#46464b] dark:placeholder:text-white/70"
             disabled={isLoading}
           />
           <Button type="submit" disabled={isLoading || !url.trim()} className="rounded-full bg-neutral-900 text-white hover:bg-neutral-800 dark:bg-white dark:text-black/85 dark:hover:bg-white/90">
@@ -139,11 +139,11 @@ export const SceneUploader: React.FC<SceneUploaderProps> = ({ onLoadFile, onLoad
 
       {/* Options */}
       <div className="bg-black/[0.04] dark:bg-black/[0.20] rounded-xl p-5 space-y-4 border border-black/[0.06] dark:border-white/[0.14]">
-        <h3 className="text-neutral-700 dark:text-white font-semibold text-sm uppercase tracking-wider">Load Options</h3>
+        <h3 className="text-neutral-800 dark:text-white font-semibold text-sm uppercase tracking-wider">Load Options</h3>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="flex items-center justify-between">
-            <Label htmlFor="progressive" className="text-neutral-600 dark:text-white/85 text-sm">Progressive Load</Label>
+            <Label htmlFor="progressive" className="text-neutral-800 dark:text-white/85 text-sm">Progressive Load</Label>
             <Switch
               id="progressive"
               checked={options.progressiveLoad}
@@ -152,7 +152,7 @@ export const SceneUploader: React.FC<SceneUploaderProps> = ({ onLoadFile, onLoad
           </div>
 
           <div className="flex items-center justify-between">
-            <Label htmlFor="alpha" className="text-neutral-600 dark:text-white/85 text-sm">Alpha Threshold</Label>
+            <Label htmlFor="alpha" className="text-neutral-800 dark:text-white/85 text-sm">Alpha Threshold</Label>
             <Input
               id="alpha"
               type="number"
@@ -165,12 +165,12 @@ export const SceneUploader: React.FC<SceneUploaderProps> = ({ onLoadFile, onLoad
           </div>
 
           <div className="flex items-center justify-between">
-            <Label htmlFor="format" className="text-neutral-600 dark:text-white/85 text-sm">Format</Label>
+            <Label htmlFor="format" className="text-neutral-800 dark:text-white/85 text-sm">Format</Label>
             <Select value={options.format} onValueChange={(v) => updateOption('format', v as LoadOptions['format'])}>
               <SelectTrigger className="w-32 bg-black/[0.04] dark:bg-black/[0.20] border-black/[0.10] dark:border-white/[0.18] text-neutral-900 dark:text-white">
                 <SelectValue />
               </SelectTrigger>
-              <SelectContent className="bg-[#e8e8ec]/[0.86] dark:bg-[#1e1e20]/[0.78] border-black/[0.10] dark:border-white/[0.18]">
+              <SelectContent className="bg-[#c7c7cc]/[0.72] dark:bg-[#1e1e20]/[0.78] border-black/[0.10] dark:border-white/[0.18]">
                 <SelectItem value="auto">Auto</SelectItem>
                 <SelectItem value="ply">.ply</SelectItem>
                 <SelectItem value="splat">.splat</SelectItem>
@@ -183,7 +183,7 @@ export const SceneUploader: React.FC<SceneUploaderProps> = ({ onLoadFile, onLoad
 
         <div className="grid grid-cols-3 gap-2 pt-2">
           <div>
-            <Label className="text-[#5a5a5f] dark:text-white/85 text-xs">Position X,Y,Z</Label>
+            <Label className="text-[#46464b] dark:text-white/85 text-xs">Position X,Y,Z</Label>
             <div className="flex gap-1 mt-1">
               {[0, 1, 2].map((i) => (
                 <Input
@@ -202,7 +202,7 @@ export const SceneUploader: React.FC<SceneUploaderProps> = ({ onLoadFile, onLoad
             </div>
           </div>
           <div>
-            <Label className="text-[#5a5a5f] dark:text-white/85 text-xs">Scale X,Y,Z</Label>
+            <Label className="text-[#46464b] dark:text-white/85 text-xs">Scale X,Y,Z</Label>
             <div className="flex gap-1 mt-1">
               {[0, 1, 2].map((i) => (
                 <Input
@@ -221,7 +221,7 @@ export const SceneUploader: React.FC<SceneUploaderProps> = ({ onLoadFile, onLoad
             </div>
           </div>
           <div>
-            <Label className="text-[#5a5a5f] dark:text-white/85 text-xs">Rotation (Quat)</Label>
+            <Label className="text-[#46464b] dark:text-white/85 text-xs">Rotation (Quat)</Label>
             <div className="flex gap-1 mt-1">
               {[0, 1, 2, 3].map((i) => (
                 <Input

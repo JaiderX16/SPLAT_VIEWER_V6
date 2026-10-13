@@ -34,32 +34,32 @@ interface MetricRowProps {
 }
 
 const statusDotClass: Record<BenchmarkStatus, string> = {
-  ideal: 'bg-emerald-600 shadow-[0_0_0_3px_rgba(16,185,129,0.18)] dark:bg-emerald-300 dark:shadow-[0_0_10px_rgba(110,231,183,0.55)]',
-  safe: 'bg-emerald-600 dark:bg-emerald-300',
-  ok: 'bg-sky-600 dark:bg-sky-300',
-  warn: 'bg-amber-700 dark:bg-amber-300',
-  danger: 'bg-red-600 dark:bg-red-200',
+  ideal: 'bg-emerald-700 shadow-[0_0_0_3px_rgba(16,185,129,0.18)] dark:bg-emerald-300 dark:shadow-[0_0_10px_rgba(110,231,183,0.55)]',
+  safe: 'bg-emerald-700 dark:bg-emerald-300',
+  ok: 'bg-sky-700 dark:bg-sky-300',
+  warn: 'bg-amber-800 dark:bg-amber-300',
+  danger: 'bg-red-700 dark:bg-red-200',
   unknown: 'bg-neutral-400 dark:bg-white/40',
 };
 
 const statusTextClass: Record<BenchmarkStatus, string> = {
-  ideal: 'text-emerald-800 dark:text-emerald-100',
-  safe: 'text-emerald-800 dark:text-emerald-100',
-  ok: 'text-sky-800 dark:text-sky-100',
-  warn: 'text-amber-800 dark:text-amber-200',
-  danger: 'text-red-800 dark:text-red-100',
-  unknown: 'text-[#5a5a5f] dark:text-white/85',
+  ideal: 'text-emerald-900 dark:text-emerald-100',
+  safe: 'text-emerald-900 dark:text-emerald-100',
+  ok: 'text-sky-900 dark:text-sky-100',
+  warn: 'text-amber-900 dark:text-amber-200',
+  danger: 'text-red-900 dark:text-red-100',
+  unknown: 'text-[#46464b] dark:text-white/85',
 };
 
 function MetricRow({ icon, label, value, detail, status }: MetricRowProps) {
   return (
     <div className="grid grid-cols-[1fr_auto] items-center gap-3">
       <div className="flex min-w-0 items-center gap-2">
-        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-black/[0.05] dark:bg-black/[0.20] text-neutral-600 dark:text-white/85">
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-black/[0.05] dark:bg-black/[0.20] text-neutral-800 dark:text-white/85">
           {icon}
         </span>
         <div className="min-w-0">
-          <div className="truncate text-[11px] font-semibold uppercase tracking-[0.12em] text-[#5a5a5f] dark:text-white/85">
+          <div className="truncate text-[11px] font-semibold uppercase tracking-[0.12em] text-[#46464b] dark:text-white/85">
             {label}
           </div>
           <div className={`truncate text-xs ${statusTextClass[status]}`}>{detail}</div>
@@ -100,10 +100,10 @@ export default function PerformanceBenchmarkPanel({ info, visible }: Performance
       <div className="mb-3 flex items-start justify-between gap-3 px-2 pt-1">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <Activity className="h-4 w-4 text-sky-800 dark:text-sky-100" />
+            <Activity className="h-4 w-4 text-sky-900 dark:text-sky-100" />
             <h2 className="truncate text-sm font-semibold">Benchmark 2026</h2>
           </div>
-          <p className="mt-0.5 truncate text-[11px] text-[#5a5a5f] dark:text-white/85">
+          <p className="mt-0.5 truncate text-[11px] text-[#46464b] dark:text-white/85">
             iPhone 13/14, A54/A55, Pixel 7a
           </p>
         </div>
@@ -154,24 +154,24 @@ export default function PerformanceBenchmarkPanel({ info, visible }: Performance
 
           <div className="grid grid-cols-3 gap-2 border-t border-black/[0.06] dark:border-white/[0.14] pt-2 text-[11px]">
             <div className="panel-chip bg-black/[0.04] dark:bg-black/[0.20] px-2 py-1.5">
-              <div className="text-[#5a5a5f] dark:text-white/85">Sort</div>
-              <div className="font-mono text-neutral-700 dark:text-white">{info.sortTimeMs.toFixed(1)} ms</div>
+              <div className="text-[#46464b] dark:text-white/85">Sort</div>
+              <div className="font-mono text-neutral-800 dark:text-white">{info.sortTimeMs.toFixed(1)} ms</div>
             </div>
             <div className="panel-chip bg-black/[0.04] dark:bg-black/[0.20] px-2 py-1.5">
-              <div className="text-[#5a5a5f] dark:text-white/85">Heap JS</div>
-              <div className="font-mono text-neutral-700 dark:text-white">{formatMB(info.jsHeapMB)}</div>
+              <div className="text-[#46464b] dark:text-white/85">Heap JS</div>
+              <div className="font-mono text-neutral-800 dark:text-white">{formatMB(info.jsHeapMB)}</div>
             </div>
             <div className="panel-chip bg-black/[0.04] dark:bg-black/[0.20] px-2 py-1.5">
-              <div className="text-[#5a5a5f] dark:text-white/85">API</div>
-              <div className="font-mono text-neutral-700 dark:text-white">
+              <div className="text-[#46464b] dark:text-white/85">API</div>
+              <div className="font-mono text-neutral-800 dark:text-white">
                 {info.backend === 'webgpu' ? 'WebGPU' : info.webgl2 ? 'WebGL2' : 'WebGL'}
               </div>
             </div>
           </div>
         </div>
       ) : (
-        <div className="panel-inner flex items-center gap-2 bg-black/[0.04] dark:bg-black/[0.20] px-3 py-3 text-sm text-neutral-600 dark:text-white/85">
-          <Gauge className="h-4 w-4 text-[#5a5a5f] dark:text-white/85" />
+        <div className="panel-inner flex items-center gap-2 bg-black/[0.04] dark:bg-black/[0.20] px-3 py-3 text-sm text-neutral-800 dark:text-white/85">
+          <Gauge className="h-4 w-4 text-[#46464b] dark:text-white/85" />
           Carga una escena para medir el objetivo movil.
         </div>
       )}
