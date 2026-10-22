@@ -5,7 +5,7 @@ import helpersShader from './helpers.wgsl';
 import { cameraRay, intersectPlane, lookAt, multiply, orthographic, perspective, vec3, type Ray, type Vec3 } from './math';
 import { EditorView, type PixelRect } from './EditorView';
 import { OrbitControls, type OrbitLimits } from './orbitControls';
-import { LOD_MAX_SCALE, SPLAT_BYTES, type LodParams, type MainToWorker, type SceneTransform, type WorkerToMain } from './protocol';
+import { LOD_MAX_SCALE, REVEAL_QUANTILE_STEPS, SPLAT_BYTES, type LodParams, type MainToWorker, type SceneTransform, type WorkerToMain } from './protocol';
 
 /**
  * Distance-LOD presets. `minPx`: projected radius (px) under which splats get
@@ -59,6 +59,28 @@ const GRID_DIVISIONS = 20;
 const GRID_HALF_SIZE = 5;
 /** Re-sort at most this often while splats are still streaming in. */
 const STREAMING_SORT_INTERVAL_MS = 120;
+/**
+ * Load reveal, centred on the origin: a point wave lights the splats up as dots
+ * (it runs while the file streams in), then once the download is done a splat
+ * wave grows each dot into its Gaussian.
+ */
+const REVEAL = {
+  POINTS_MS: 3000,
+  HOLD_MS: 150,
+  SPLATS_MS: 3500,
+  /**
+   * Fade-in and dot-to-splat grow band widths, as fractions of the splat count: the waves
+   * advance by splat count, not distance, so the dense core of a big scene doesn't flash by.
+   */
+  FADE_BAND: 0.04,
+  GROW_BAND: 0.15,
+  /** The splat wave lasts longer on heavier scenes (x sqrt(splats / reference), capped). */
+  REFERENCE_SPLATS: 200_000,
+  MAX_SLOWDOWN: 1.6,
+  /** Auto-rotation eases from the intro speed to the resting speed after the reveal. */
+  SLOWDOWN_MS: 3000,
+};
+const easeOutReveal = (t: number) => 1 - Math.pow(1 - Math.min(Math.max(t, 0), 1), 2.5);
 /** View-projection change (max abs element delta) that triggers a re-sort. */
 const SORT_EPSILON = 1e-3;
 /** A press counts as a click (not a drag) under these thresholds. */
@@ -134,6 +156,9 @@ export class SplatRenderer {
   private lastSortMs = 0;
   private lodQuality: LodQuality = 'balanced';
   private lodPacked = false;
+  /** Reveal timeline: starts with the first streamed splats; `loadedAt`/`splatsAt` once known. */
+  private reveal: { start: number; quantiles: Float32Array; loadedAt: number | null; splatsAt: number | null } | null = null;
+  private slowdown: { from: number; start: number } | null = null;
   private lodCulled = 0;
   private forceSort = false;
   private readonly lastSortViewProj = new Float32Array(16);
@@ -317,6 +342,7 @@ export class SplatRenderer {
     this.loadedCount = 0;
     this.visibleCount = 0;
     this.dataSinceSort = false;
+    this.reveal = null;
     this.needsRender = true;
   }
 
@@ -408,6 +434,7 @@ export class SplatRenderer {
     this.controls.autoRotate = true;
     this.controls.autoRotateSpeed = introSpeed;
     this.flyEndSpeed = endSpeed;
+    this.slowdown = null;
   }
 
   getStats(): SplatRendererStats {
@@ -432,18 +459,66 @@ export class SplatRenderer {
     };
   }
 
+  // ─── Reveal ────────────────────────────────────────────────────────────────
+  /** Advances the reveal timeline; returns the shader's wave radii, or null when it is over. */
+  private updateReveal(now: number): [number, number, number, number] | null {
+    const r = this.reveal;
+    if (!r) return null;
+    const pointsT = (now - r.start) / REVEAL.POINTS_MS;
+    // The splat wave waits for both the download and the point wave.
+    if (r.splatsAt === null && r.loadedAt !== null && pointsT >= 1) r.splatsAt = now + REVEAL.HOLD_MS;
+    const slowdown = Math.min(Math.max(Math.sqrt(this.loadedCount / REVEAL.REFERENCE_SPLATS), 1), REVEAL.MAX_SLOWDOWN);
+    const splatsT = r.splatsAt === null ? 0 : (now - r.splatsAt) / (REVEAL.SPLATS_MS * slowdown);
+    if (splatsT >= 1) {
+      this.reveal = null;
+      this.needsRender = true;
+      return null;
+    }
+    this.needsRender = true;
+    // A front at fraction f has passed the f nearest splats; its band spans the splats just behind
+    // it. Fronts run one band past the end so every splat fully crosses them.
+    const front = (t: number, band: number) => {
+      const f = easeOutReveal(t) * (1 + band);
+      const radius = this.revealQuantile(r.quantiles, f);
+      return [radius, Math.max(radius - this.revealQuantile(r.quantiles, f - band), 1e-4)];
+    };
+    // Once a front has passed the scene it goes to infinity so late or far splats aren't held back.
+    const [pointR, fadeBand] = pointsT >= 1 ? [1e30, 1] : front(pointsT, REVEAL.FADE_BAND);
+    const [splatR, growBand] = r.splatsAt === null || now < r.splatsAt ? [-1, 1] : front(splatsT, REVEAL.GROW_BAND);
+    return [pointR, splatR, fadeBand, growBand];
+  }
+
+  /** Distance from the origin within which `fraction` of the splats lie (interpolated; infinite past the end). */
+  private revealQuantile(quantiles: Float32Array, fraction: number) {
+    if (fraction >= 1) return fraction > 1 ? 1e30 : quantiles[REVEAL_QUANTILE_STEPS];
+    const x = Math.max(fraction, 0) * REVEAL_QUANTILE_STEPS;
+    const i = Math.floor(x);
+    return quantiles[i] + (quantiles[i + 1] - quantiles[i]) * (x - i);
+  }
+
+  /** After the intro fly-in and the reveal, eases auto-rotation down to the resting speed. */
+  private updateIntroSlowdown(now: number) {
+    const end = this.flyEndSpeed;
+    if (end === null) {
+      this.slowdown = null;
+      return;
+    }
+    if (this.controls.isFlying || this.reveal) return;
+    this.slowdown ??= { from: this.controls.autoRotateSpeed, start: now };
+    const t = Math.min((now - this.slowdown.start) / REVEAL.SLOWDOWN_MS, 1);
+    this.controls.autoRotateSpeed = this.slowdown.from + (end - this.slowdown.from) * (1 - (1 - t) * (1 - t));
+    if (t >= 1) this.flyEndSpeed = null;
+  }
+
   // ─── Frame ─────────────────────────────────────────────────────────────────
   private tick(frame: Frame) {
     const now = performance.now();
     const dt = (now - this.lastTick) / 1000;
     this.lastTick = now;
 
-    const wasFlying = this.controls.isFlying;
     const moved = this.controls.update(dt);
-    if (wasFlying && !this.controls.isFlying && this.flyEndSpeed !== null) {
-      this.controls.autoRotateSpeed = this.flyEndSpeed;
-      this.flyEndSpeed = null;
-    }
+    const revealUniform = this.updateReveal(now);
+    this.updateIntroSlowdown(now);
 
     this.updateMatrices();
     this.maybeSort(now);
@@ -469,7 +544,8 @@ export class SplatRenderer {
         viewport: [w, h],
         focal: [(this.proj[0] * w) / 2, (this.proj[5] * h) / 2],
         params: [this.splatScale, this.pointCloud ? 1 : 0, this.ortho ? 1 : 0, tanHalf * Math.max(1, w / Math.max(h, 1))],
-        lod: [this.lodPacked ? 1 : 0, LOD_MAX_SCALE, 0, 0],
+        lod: [this.lodPacked ? 1 : 0, LOD_MAX_SCALE, 0, revealUniform ? 1 : 0],
+        reveal: revealUniform ?? [0, 0, 1, 1],
       },
     });
     // Dark grid lines on a light scene background, light lines on a dark one.
@@ -573,6 +649,12 @@ export class SplatRenderer {
         this.device.queue.writeBuffer(this.splatBuffer, msg.first * SPLAT_BYTES, msg.data.buffer, msg.data.byteOffset, msg.data.byteLength);
         this.loadedCount = Math.max(this.loadedCount, msg.first + msg.count);
         this.dataSinceSort = true;
+        // `revealQuantiles` is missing only from a worker that predates a hot reload: skip the reveal.
+        if (this.reveal && msg.revealQuantiles) {
+          this.reveal.quantiles = msg.revealQuantiles;
+        } else if (msg.first === 0 && msg.revealQuantiles) {
+          this.reveal = { start: performance.now(), quantiles: msg.revealQuantiles, loadedAt: null, splatsAt: null };
+        }
         const pending = this.pendingLoad;
         if (pending && !pending.firstSplatsSent) {
           pending.firstSplatsSent = true;
@@ -583,6 +665,7 @@ export class SplatRenderer {
       case 'done': {
         this.loadedCount = msg.count;
         this.dataSinceSort = true;
+        if (this.reveal) this.reveal.loadedAt = performance.now();
         const pending = this.pendingLoad;
         this.pendingLoad = null;
         pending?.options.onProgress?.(100, '100%', 2);

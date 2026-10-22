@@ -75,6 +75,7 @@ export interface LodParams {
 export const LOD_MAX_SCALE = 4;
 /** Order entries carry the splat index in the low 24 bits and the LOD scale in the top 8. */
 export const LOD_INDEX_BITS = 24;
+export const REVEAL_QUANTILE_STEPS = 128;
 export const LOD_MAX_PACKED_SPLATS = (1 << LOD_INDEX_BITS) - 1;
 
 export type WorkerToMain =
@@ -82,7 +83,11 @@ export type WorkerToMain =
   | { type: 'begin'; capacity: number }
   | { type: 'progress'; loadedBytes: number; totalBytes: number }
   /** Packed splats `[first, first + count)` ready to upload. */
-  | { type: 'chunk'; first: number; count: number; data: Uint32Array }
+  /**
+   * `revealQuantiles[i]`: distance from the origin within which `i / REVEAL_QUANTILE_STEPS`
+   * of the splats loaded so far lie, so the reveal waves can advance by splat count.
+   */
+  | { type: 'chunk'; first: number; count: number; data: Uint32Array; revealQuantiles: Float32Array }
   | { type: 'done'; count: number }
   | {
       type: 'sorted';

@@ -1,5 +1,4 @@
 import { X, Upload } from 'lucide-react';
-import { useEffect, useState } from 'react';
 import { type LoadOptions } from '@/components/SceneUploader';
 
 export interface SceneModelItem {
@@ -15,11 +14,6 @@ export interface SidebarProps {
   onUpload: () => void;
   isOpen: boolean;
   setIsOpen: (isOpen: boolean) => void;
-  backend?: 'webgpu' | 'webgl' | 'detecting';
-}
-
-function formatTime(date: Date): string {
-  return date.toLocaleTimeString('en-US', { hour12: false });
 }
 
 export default function Sidebar({
@@ -29,48 +23,18 @@ export default function Sidebar({
   onUpload,
   isOpen,
   setIsOpen,
-  backend = 'detecting',
 }: SidebarProps) {
-  const [time, setTime] = useState(() => formatTime(new Date()));
-
-  useEffect(() => {
-    const timer = setInterval(() => setTime(formatTime(new Date())), 1000);
-    return () => clearInterval(timer);
-  }, []);
-
   if (!isOpen) return null;
 
   return (
     <aside
       aria-label="Panel lateral de escenas"
-      // Concentric radii: pad 12 + header r30 = 42; rows: pad 8 + 40px circle r20 = 28.
-      className="absolute top-4 left-4 bottom-4 w-[320px] z-[300] flex flex-col gap-2 p-3 rounded-[42px] glass overflow-hidden"
+      // Concentric radii: pad 18 + 48px upload pill r24 = 42 (the 44px close pill sits ~concentric too);
+      // rows: pad 8 + 40px circle r20 = 28.
+      className="absolute top-4 left-4 bottom-4 w-[320px] z-[300] flex flex-col gap-2 p-[18px] rounded-[42px] glass overflow-hidden"
     >
       {/* Header */}
-      {/* pad 8 + 44px circle r22 = 30 */}
-      <div className="flex items-center justify-between rounded-[30px] bg-black/[0.04] dark:bg-black/[0.20] p-2">
-        <div className="flex items-center gap-3">
-          <div className="w-11 h-11 rounded-full bg-black/[0.06] dark:bg-black/[0.20] flex items-center justify-center">
-            <div className="w-2.5 h-2.5 rounded-full bg-gradient-to-br from-sky-500 dark:from-sky-500 to-fuchsia-500 dark:to-fuchsia-500" />
-          </div>
-          <div>
-            <h1 className="text-neutral-900 dark:text-white font-semibold text-sm tracking-wider uppercase">
-              Splat Viewer
-            </h1>
-            <div className="flex items-center gap-1.5 mt-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-700 dark:bg-emerald-300" />
-              <span className="text-[#46464b] dark:text-white/85 text-xs font-mono">{time}</span>
-              {backend !== 'detecting' && (
-                <span
-                  className="ml-1 rounded-full bg-black/[0.05] dark:bg-black/[0.20] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-neutral-800 dark:text-white/85"
-                  title={backend === 'webgpu' ? 'Renderizado con WebGPU (vgpu)' : 'Renderizado con WebGL (fallback)'}
-                >
-                  {backend === 'webgpu' ? 'WebGPU' : 'WebGL'}
-                </span>
-              )}
-            </div>
-          </div>
-        </div>
+      <div className="flex justify-end">
         <button
           onClick={() => setIsOpen(false)}
           className="pill-btn"

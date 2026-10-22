@@ -163,6 +163,7 @@ export class EditorView {
         focal: [(this.proj[0] * rect.width) / 2, (this.proj[5] * rect.height) / 2],
         params: [main.splatScale, main.pointCloud ? 1 : 0, 0, Math.tan((OVERVIEW_FOV_DEG * Math.PI) / 360) * Math.max(1, this.aspect)],
         lod: [main.lodPacked ? 1 : 0, LOD_MAX_SCALE, 0, 0],
+        reveal: [0, 0, 1, 1], // unused: lod.w = 0 keeps the overview out of the load reveal
       },
     });
 

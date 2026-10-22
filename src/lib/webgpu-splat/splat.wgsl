@@ -14,8 +14,11 @@ struct Camera {
   focal: vec2f,
   // x: splat scale, y: point-cloud mode (0/1), z: orthographic (0/1), w: tan(fov/2) clamp
   params: vec4f,
-  // x: order entries are LOD-packed (0/1), y: LOD_MAX_SCALE
+  // x: order entries are LOD-packed (0/1), y: LOD_MAX_SCALE, w: reveal active (0/1)
   lod: vec4f,
+  // Reveal waves centred on the origin. x: point wave radius (splats beyond it are hidden),
+  // y: splat wave radius (splats beyond it are dots), z: point fade-in band, w: grow band.
+  reveal: vec4f,
 }
 
 @group(0) @binding(0) var<uniform> camera: Camera;
@@ -26,12 +29,16 @@ struct Camera {
 
 const COVARIANCE_UNPACK: f32 = 0.25; // 1 / COVARIANCE_PACK_SCALE
 const MAX_AXIS_PX: f32 = 1024.0;
+// Half-axis of a dot (reveal and point-cloud mode), in px; the quad spans ±2 → ~1 px radius.
+const DOT_PX: f32 = 0.5;
 
 struct VertexOut {
   @builtin(position) position: vec4f,
   @location(0) color: vec4f,
   // Quad-local coordinate in units of √2 σ; |uv|² = 4 is the cutoff.
   @location(1) uv: vec2f,
+  // x: 0 = full Gaussian, 1 = solid dot. y: reveal fade-in.
+  @location(2) reveal: vec2f,
 }
 
 fn culled() -> VertexOut {
@@ -39,6 +46,7 @@ fn culled() -> VertexOut {
   out.position = vec4f(0.0, 0.0, 2.0, 1.0); // outside the clip volume
   out.color = vec4f(0.0);
   out.uv = vec2f(0.0);
+  out.reveal = vec2f(0.0);
   return out;
 }
 
@@ -70,11 +78,21 @@ fn vs_main(@builtin(vertex_index) vertexIndex: u32, @builtin(instance_index) ins
   let rgba = unpack4x8unorm(a.w);
   var major: vec2f;
   var minor: vec2f;
+  var dotMix = 0.0;
+  var visible = 1.0;
+  if (camera.lod.w > 0.5) {
+    let dist = length(center);
+    visible = clamp((camera.reveal.x - dist) / camera.reveal.z, 0.0, 1.0);
+    if (visible <= 0.0) {
+      return culled();
+    }
+    dotMix = 1.0 - clamp((camera.reveal.y - dist) / camera.reveal.w, 0.0, 1.0);
+  }
 
-  if (camera.params.y > 0.5) {
-    // Point-cloud mode: fixed-size round dots.
-    major = vec2f(1.5, 0.0);
-    minor = vec2f(0.0, 1.5);
+  if (camera.params.y > 0.5 || dotMix >= 1.0) {
+    // Point-cloud mode and unrevealed splats: fixed-size round dots.
+    major = vec2f(DOT_PX, 0.0);
+    minor = vec2f(0.0, DOT_PX);
   } else {
     let c0 = unpack2x16float(b.x); // c00, c01
     let c1 = unpack2x16float(b.y); // c02, c11
@@ -128,6 +146,9 @@ fn vs_main(@builtin(vertex_index) vertexIndex: u32, @builtin(instance_index) ins
     let diag = select(vec2f(1.0, 0.0), dv / dl, dl > 1e-8);
     major = min(sqrt(2.0 * lambda1) * lodScale, MAX_AXIS_PX) * diag;
     minor = min(sqrt(2.0 * lambda2) * lodScale, MAX_AXIS_PX) * vec2f(diag.y, -diag.x);
+    // Behind the splat wave front: grow from a dot into the full splat.
+    major = mix(major, diag * DOT_PX, dotMix);
+    minor = mix(minor, vec2f(diag.y, -diag.x) * DOT_PX, dotMix);
   }
 
   // Two triangles: (-2,-2) (2,-2) (2,2) | (-2,-2) (2,2) (-2,2)
@@ -142,6 +163,7 @@ fn vs_main(@builtin(vertex_index) vertexIndex: u32, @builtin(instance_index) ins
   out.position = vec4f(ndc + offsetPx * 2.0 / camera.viewport, 0.5, 1.0);
   out.color = rgba;
   out.uv = corner;
+  out.reveal = vec2f(select(dotMix, 1.0, camera.params.y > 0.5), visible);
   return out;
 }
 
@@ -151,12 +173,8 @@ fn fs_main(in: VertexOut) -> @location(0) vec4f {
   if (r2 > 4.0) {
     discard;
   }
-  var alpha: f32;
-  if (camera.params.y > 0.5) {
-    alpha = 1.0;
-  } else {
-    alpha = exp(-r2) * in.color.a;
-  }
+  // Dots are solid discs that soften into the Gaussian falloff as they grow.
+  let alpha = mix(exp(-r2) * in.color.a, 1.0, in.reveal.x) * in.reveal.y;
   if (alpha < 1.0 / 255.0) {
     discard;
   }

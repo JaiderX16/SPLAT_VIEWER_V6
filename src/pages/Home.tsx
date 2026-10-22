@@ -23,15 +23,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Slider } from '@/components/ui/slider';
 import {
   Trash2,
-  Plus,
-  Minus,
   Eye,
   EyeOff,
   Info,
-  Settings2,
   Crosshair,
   ChevronRight,
   Activity,
@@ -141,7 +137,6 @@ export default function Home() {
   const [benchmarkVisible, setBenchmarkVisible] = useState(true);
   const [showUploader, setShowUploader] = useState(false);
   const [pointCloudMode, setPointCloudMode] = useState(false);
-  const [splatScale, setSplatScale] = useState(1.0);
   const [activeScene, setActiveScene] = useState<string>('');
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [mobileSheetState, setMobileSheetState] = useState<SheetState>('idle');
@@ -349,11 +344,10 @@ export default function Home() {
       });
       // GaussianSplats3D only accepts these once a scene exists.
       if (pointCloudMode) viewer.setPointCloudMode(true);
-      if (splatScale !== 1) viewer.setSplatScale(splatScale);
     } catch (e) {
       handleError(e instanceof Error ? e : new Error(String(e)));
     }
-  }, [backend, editorView, getViewer, handleError, isLoading, pointCloudMode, splatScale]);
+  }, [backend, editorView, getViewer, handleError, isLoading, pointCloudMode]);
 
   const handleLoadFile = useCallback(async (file: File, options: LoadOptions) => {
     const url = URL.createObjectURL(file);
@@ -394,12 +388,6 @@ export default function Home() {
     viewerRef.current?.setPointCloudMode(next);
   }, [pointCloudMode]);
 
-  const applySplatScale = useCallback((scale: number) => {
-    const clamped = Math.min(3, Math.max(0.1, Math.round(scale * 100) / 100));
-    setSplatScale(clamped);
-    viewerRef.current?.setSplatScale(clamped);
-  }, []);
-
   const handleResetCamera = useCallback(() => {
     viewerRef.current?.resetCamera();
   }, []);
@@ -437,8 +425,6 @@ export default function Home() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, []);
 
-  const downloading = progressiveState.status === 'downloading' || progressiveState.status === 'processing';
-
   const viewerProps = {
     onProgress: handleProgress,
     onLoadStart: handleLoadStart,
@@ -450,15 +436,6 @@ export default function Home() {
 
   return (
     <div className="relative w-screen h-[100dvh] overflow-hidden bg-[#c8c8cd] dark:bg-black">
-      {/* ── Minimal top progress bar ── */}
-      {downloading && (
-        <div className="absolute top-0 left-0 right-0 z-[100] pointer-events-none">
-          <div
-            className="h-[2px] bg-gradient-to-r from-sky-600 dark:from-sky-600 via-indigo-500 dark:via-indigo-500 to-fuchsia-600 dark:to-fuchsia-600 shadow-[0_0_8px_rgba(2,132,199,0.35)] dark:shadow-[0_0_10px_rgba(56,189,248,0.6)] transition-[width] duration-300 ease-out"
-            style={{ width: `${Math.max(2, progressiveState.percent)}%` }}
-          />
-        </div>
-      )}
 
       {/* ── Sidebar (desktop) ── */}
       {!isMobile && sidebarOpen && (
@@ -469,12 +446,11 @@ export default function Home() {
           onUpload={() => setShowUploader(true)}
           isOpen={sidebarOpen}
           setIsOpen={setSidebarOpen}
-          backend={backend}
         />
       )}
 
-      {/* ── Sidebar Mobile Sheet ── */}
-      {isMobile && (
+      {/* ── Sidebar Mobile Sheet (hidden while the settings panel uses the bottom of the screen) ── */}
+      {isMobile && !advancedOpen && (
         <SidebarMobileSheet
           sheetState={mobileSheetState}
           onSheetStateChange={setMobileSheetState}
@@ -519,38 +495,6 @@ export default function Home() {
         <ProgressiveLoader state={progressiveState} />
         <InfoPanel info={sceneInfo} visible={infoVisible} onToggle={() => setInfoVisible((v) => !v)} />
         <PerformanceBenchmarkPanel info={benchmarkInfo} visible={benchmarkVisible} />
-
-        {/* Splat scale: pill group with concentric inner pills */}
-        {hasScene && !advancedOpen && (
-          <div
-            // Sits beside the 320px sidebar (left-4 + 320 + 16px gap) when it is open.
-            className={`absolute z-40 glass dock items-center ${
-              isMobile ? 'left-4 bottom-24' : sidebarOpen ? 'left-[352px] bottom-4' : 'left-4 bottom-4'
-            }`}
-            role="group"
-            aria-label="Escala de splats"
-          >
-            <span className="pill-btn pointer-events-none !text-[#46464b] dark:text-white/85" aria-hidden>
-              <Settings2 className="w-4 h-4" />
-            </span>
-            <button className="pill-btn" onClick={() => applySplatScale(splatScale - 0.05)} aria-label="Reducir escala">
-              <Minus className="w-3.5 h-3.5" />
-            </button>
-            <Slider
-              value={[splatScale]}
-              onValueChange={(v) => applySplatScale(v[0])}
-              min={0.1}
-              max={3.0}
-              step={0.05}
-              className="w-28 sm:w-40 mx-1"
-              aria-label="Escala de splats"
-            />
-            <button className="pill-btn" onClick={() => applySplatScale(splatScale + 0.05)} aria-label="Aumentar escala">
-              <Plus className="w-3.5 h-3.5" />
-            </button>
-            <span className="text-neutral-800 dark:text-white/85 text-xs font-mono w-10 pr-3 text-right tabular-nums">{splatScale.toFixed(2)}</span>
-          </div>
-        )}
       </main>
 
       {/* ── Right-side dock ── */}

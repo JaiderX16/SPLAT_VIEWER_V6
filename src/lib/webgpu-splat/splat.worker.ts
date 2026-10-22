@@ -15,6 +15,7 @@ import {
   LOD_INDEX_BITS,
   LOD_MAX_PACKED_SPLATS,
   LOD_MAX_SCALE,
+  REVEAL_QUANTILE_STEPS,
   type LodParams,
   SPLAT_FILE_RECORD_BYTES,
   SPLAT_WORDS,
@@ -52,6 +53,7 @@ let depthScratch = new Float32Array(0);
 let indexScratch = new Uint32Array(0);
 let keyScratch = new Uint16Array(0);
 const bucketCounts = new Uint32Array(SORT_BUCKETS);
+const REVEAL_SAMPLES = 4096;
 
 function post(msg: WorkerToMain, transfer: Transferable[] = []) {
   ctx.postMessage(msg, transfer);
@@ -215,6 +217,21 @@ function parseRecords(bytes: Uint8Array, alphaThreshold: number, affine: Affine 
   return { first, count: kept, data: kept === records ? packed : packed.slice(0, kept * SPLAT_WORDS) };
 }
 
+/** Sampled distance-from-origin quantiles (see protocol.ts). */
+function revealQuantiles() {
+  const stride = Math.max(1, Math.floor(splatCount / REVEAL_SAMPLES));
+  const dist = new Float32Array(Math.ceil(splatCount / stride));
+  for (let i = 0, k = 0; i < splatCount; i += stride, k++) {
+    dist[k] = Math.hypot(positions[i * 3], positions[i * 3 + 1], positions[i * 3 + 2]);
+  }
+  dist.sort();
+  const out = new Float32Array(REVEAL_QUANTILE_STEPS + 1);
+  for (let i = 0; i <= REVEAL_QUANTILE_STEPS; i++) {
+    out[i] = dist[Math.round((i / REVEAL_QUANTILE_STEPS) * (dist.length - 1))];
+  }
+  return out;
+}
+
 async function load(url: string, alphaThreshold: number, transform: SceneTransform | undefined, token: number) {
   abortController?.abort();
   abortController = new AbortController();
@@ -234,7 +251,10 @@ async function load(url: string, alphaThreshold: number, transform: SceneTransfo
   const flush = (bytes: Uint8Array) => {
     const chunk = parseRecords(bytes, alphaThreshold, affine);
     if (chunk.count > 0) {
-      post({ type: 'chunk', first: chunk.first, count: chunk.count, data: chunk.data }, [chunk.data.buffer]);
+      post(
+        { type: 'chunk', first: chunk.first, count: chunk.count, data: chunk.data, revealQuantiles: revealQuantiles() },
+        [chunk.data.buffer],
+      );
     }
   };
 
