@@ -48,6 +48,11 @@ const DEMO_SCENES: Array<{ name: string; url: string; format: LoadOptions['forma
     format: 'splat',
   },
   {
+    name: 'APATA FUENTE HD',
+    url: 'https://huggingface.co/datasets/JaiderX16/MemorIA/resolve/main/APATA-FUENTE.splat',
+    format: 'splat',
+  },
+  {
     name: 'Constitucion',
     url: 'https://huggingface.co/datasets/JaiderX16/MemorIA/resolve/main/Constitucion.splat',
     format: 'splat',
@@ -55,6 +60,21 @@ const DEMO_SCENES: Array<{ name: string; url: string; format: LoadOptions['forma
   {
     name: 'Huamanmarca',
     url: 'https://huggingface.co/datasets/JaiderX16/MemorIA/resolve/main/Huamanmarca.splat',
+    format: 'splat',
+  },
+  {
+    name: 'Lago Azul',
+    url: 'https://huggingface.co/datasets/JaiderX16/MemorIA/resolve/main/LAGO-AZUL.splat',
+    format: 'splat',
+  },
+  {
+    name: 'Taza',
+    url: 'https://huggingface.co/datasets/JaiderX16/MemorIA/resolve/main/TAZA.splat',
+    format: 'splat',
+  },
+  {
+    name: 'Torre',
+    url: 'https://huggingface.co/datasets/JaiderX16/MemorIA/resolve/main/Torre.splat',
     format: 'splat',
   },
   {
