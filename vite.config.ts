@@ -16,11 +16,16 @@ const crossOriginIsolationHeaders = {
   'Cross-Origin-Embedder-Policy': 'credentialless',
 };
 
-export default defineConfig({
+// `vite build --mode lib` (npm run build:lib) packages the viewer as an npm library
+// in lib/: one ES entry plus lazy chunks, React left to the host app.
+export default defineConfig(({ mode }) => {
+  // Read by tailwind.config.js: the host page brings its own preflight.
+  if (mode === 'lib') process.env.SPLAT_LIB = '1';
+  return {
   base: './',
   // wgslVitePlugin prepares every `.wgsl` import at build time (vgpu ShaderSource),
   // so the browser bundle never ships the WGSL parser.
-  plugins: [inspectAttr(), react(), wgslVitePlugin()],
+  plugins: mode === 'lib' ? [react(), wgslVitePlugin()] : [inspectAttr(), react(), wgslVitePlugin()],
   worker: {
     format: 'es',
   },
@@ -42,7 +47,12 @@ export default defineConfig({
       ),
     },
   },
-  build: {
+  build: mode === 'lib' ? {
+    outDir: 'lib',
+    chunkSizeWarningLimit: 1500,
+    lib: { entry: 'src/lib.ts', formats: ['es'], fileName: 'splat-viewer', cssFileName: 'style' },
+    rollupOptions: { external: [/^react($|\/)/, /^react-dom($|\/)/] },
+  } : {
     chunkSizeWarningLimit: 1500,
     rollupOptions: {
       output: {
@@ -60,4 +70,5 @@ export default defineConfig({
       },
     },
   },
+  };
 });

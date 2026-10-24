@@ -2,8 +2,12 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * Everything is scoped to the `.msv` wrapper (Tailwind `important: '.msv'` does the
+ * utilities), so the viewer can be embedded in another site without leaking styles.
+ */
 @layer base {
-  :root {
+  .msv {
     --background: 0 0% 100%;
     --foreground: 240 10% 3.9%;
     --card: 0 0% 100%;
@@ -26,7 +30,7 @@
     --radius: 0.625rem;
   }
 
-  .dark {
+  .dark .msv {
     --background: 240 10% 3.9%;
     --foreground: 0 0% 98%;
     --card: 240 10% 3.9%;
@@ -50,12 +54,22 @@
 }
 
 @layer base {
-  * {
+  .msv,
+  .msv * {
     @apply border-border;
   }
-  body {
-    @apply bg-background text-foreground font-sans;
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  /* The viewer root: fills its parent, pearl field in light mode, black in dark. */
+  .msv {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #c8c8cd;
+    color: hsl(var(--foreground));
+    font-family: 'Inter Variable', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  }
+  .dark .msv {
+    background: #000;
   }
 }
 /* ─── Glass UI system ──────────────────────────────────────────────────────────
@@ -64,7 +78,7 @@
  * so curves stay parallel. Tokens live here; components only compose classes.
  */
 @layer base {
-  :root {
+  .msv {
     --ui-pad: 6px;                 /* dock / pill-group padding */
     --ui-btn: 44px;                /* pill icon button size (touch-friendly) */
     --ui-dock-radius: calc(var(--ui-btn) / 2 + var(--ui-pad));
@@ -94,7 +108,7 @@
   }
 
   /* Dark = "smoke glass": translucent graphite, white ink, selected states lighten. */
-  .dark {
+  .dark .msv {
     --glass-bg: rgba(30, 30, 32, 0.66);
     --glass-bg-strong: rgba(30, 30, 32, 0.78);
     --glass-border: rgba(255, 255, 255, 0.14);

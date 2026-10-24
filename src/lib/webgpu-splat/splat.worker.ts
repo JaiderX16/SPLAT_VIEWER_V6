@@ -403,7 +403,7 @@ function runPendingSort() {
 }
 
 // ─── Picking ──────────────────────────────────────────────────────────────────
-function pick(origin: [number, number, number], dir: [number, number, number], coneTan: number, coneRadius: number) {
+function pick(origin: [number, number, number], dir: [number, number, number], coneTan: number, coneRadius: number, near: number) {
   const [ox, oy, oz] = origin;
   const [dx, dy, dz] = dir;
   const p = positions;
@@ -413,7 +413,7 @@ function pick(origin: [number, number, number], dir: [number, number, number], c
     if (alphas[i] < PICK_MIN_ALPHA) continue;
     const vx = p[i * 3] - ox, vy = p[i * 3 + 1] - oy, vz = p[i * 3 + 2] - oz;
     const t = vx * dx + vy * dy + vz * dz;
-    if (t <= NEAR_CULL || t >= bestT) continue;
+    if (t <= near || t >= bestT) continue;
     const perp2 = vx * vx + vy * vy + vz * vz - t * t;
     const r = coneRadius + coneTan * t;
     if (perp2 <= r * r) {
@@ -454,7 +454,7 @@ ctx.onmessage = (event: MessageEvent<MainToWorker>) => {
       runPendingSort();
       break;
     case 'pick':
-      post({ type: 'picked', id: msg.id, point: pick(msg.origin, msg.dir, msg.coneTan, msg.coneRadius) });
+      post({ type: 'picked', id: msg.id, point: pick(msg.origin, msg.dir, msg.coneTan, msg.coneRadius, msg.near ?? NEAR_CULL) });
       break;
   }
 };

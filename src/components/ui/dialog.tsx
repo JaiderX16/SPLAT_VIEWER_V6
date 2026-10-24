@@ -53,7 +53,7 @@ function DialogContent({
   showCloseButton?: boolean
 }) {
   return (
-    <DialogPortal data-slot="dialog-portal">
+    <DialogPortal data-slot="dialog-portal" container={document.querySelector<HTMLElement>('.msv')}>
       <DialogOverlay />
       <DialogPrimitive.Content
         data-slot="dialog-content"

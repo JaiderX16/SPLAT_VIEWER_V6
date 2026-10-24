@@ -6,6 +6,12 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
       "port": 3000
+    },
+    {
+      "name": "memoria",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "../MemorIA", "run", "dev", "--", "--port", "5173"],
+      "port": 5173
     }
   ]
 }

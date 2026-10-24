@@ -196,6 +196,7 @@ const WebGPUSplatViewer = forwardRef<SplatViewerHandle, WebGPUSplatViewerProps>(
         controls.lookFrom(VIEW_DIRECTIONS[view], Math.max(controls.distance, 2.5));
       },
       setEditorViewVisible: (visible) => rendererRef.current?.setEditorViewVisible(visible),
+      setNavigation: (settings) => rendererRef.current?.setNavigation(settings),
     }), []);
 
     return (

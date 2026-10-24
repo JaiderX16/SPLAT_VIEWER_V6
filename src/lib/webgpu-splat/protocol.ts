@@ -55,6 +55,8 @@ export type MainToWorker =
       dir: [number, number, number];
       coneTan: number;
       coneRadius: number;
+      /** Hits closer than this are ignored (default: the render near cull). */
+      near?: number;
     };
 
 /**

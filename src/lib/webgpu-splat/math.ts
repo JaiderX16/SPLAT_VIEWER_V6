@@ -74,6 +74,8 @@ export interface Ray {
   coneTan: number;
   /** Constant pick-cone radius in world units (orthographic). */
   coneRadius: number;
+  /** Ignore hits closer than this (picks default to the render near cull). */
+  near?: number;
 }
 
 /**

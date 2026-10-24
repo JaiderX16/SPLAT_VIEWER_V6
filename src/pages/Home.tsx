@@ -5,12 +5,15 @@ import SceneUploader, { type LoadOptions } from '@/components/SceneUploader';
 import InfoPanel, { type SceneInfo } from '@/components/InfoPanel';
 import PerformanceBenchmarkPanel, { type PerformanceBenchmarkInfo } from '@/components/PerformanceBenchmarkPanel';
 import AdvancedControlsPanel from '@/components/AdvancedControlsPanel';
+import NavigationPanel from '@/components/NavigationPanel';
 import { estimateGaussianSplatVramMB, scoreBenchmark } from '@/lib/performanceBenchmark';
 import { isWebGPUAvailable } from '@/lib/webgpu-splat/SplatRenderer';
 import { useTheme } from '@/hooks/useTheme';
 import {
   resolveFormat,
   type CameraView,
+  type NavigationSettings,
+  NAVIGATION_CYCLE,
   type RenderBackend,
   type SplatViewerHandle,
   type ViewerStats,
@@ -33,6 +36,7 @@ import {
   Activity,
   SlidersHorizontal,
   Camera,
+  Compass,
   Sun,
   Moon,
 } from 'lucide-react';
@@ -136,7 +140,14 @@ function forcedBackend(): RenderBackend | null {
 
 type BackendState = RenderBackend | 'detecting';
 
-export default function Home() {
+interface SplatViewerProps {
+  /** Show the sidebar, dock and panels (default). Off: just the scene; keyboard shortcuts still work. */
+  showUI?: boolean;
+  /** Scene to load on mount (e.g. an embedded viewer with `showUI={false}`). */
+  src?: string;
+}
+
+export default function Home({ showUI = true, src }: SplatViewerProps) {
   const viewerRef = useRef<SplatViewerHandle | null>(null);
   const viewerWaitersRef = useRef<Array<{ backend: RenderBackend; resolve: (h: SplatViewerHandle) => void }>>([]);
   const activeObjectUrlRef = useRef<string | null>(null);
@@ -161,6 +172,15 @@ export default function Home() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [mobileSheetState, setMobileSheetState] = useState<SheetState>('idle');
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [navigationOpen, setNavigationOpen] = useState(false);
+  const [navigation, setNavigation] = useState<NavigationSettings>({ mode: 'orbit', speed: 1, gyro: false });
+  const navigationRef = useRef(navigation);
+  const applyNavigation = useCallback((patch: Partial<NavigationSettings>) => {
+    const next = { ...navigationRef.current, ...patch };
+    navigationRef.current = next;
+    setNavigation(next);
+    viewerRef.current?.setNavigation?.(next);
+  }, []);
   const [editorView, setEditorView] = useState(false);
 
   const isMobile = useIsMobile();
@@ -351,7 +371,8 @@ export default function Home() {
 
     try {
       const viewer = await getViewer(wanted);
-      // Frame the camera first: the viewer's cinematic entrance starts from here.
+      // Frame the camera first: the viewer's cinematic entrance (an orbit) starts from here.
+      applyNavigation({ mode: 'orbit' });
       viewer.resetCamera();
       viewer.setEditorViewVisible(editorView);
       await viewer.addSplatScene(url, {
@@ -367,7 +388,7 @@ export default function Home() {
     } catch (e) {
       handleError(e instanceof Error ? e : new Error(String(e)));
     }
-  }, [backend, editorView, getViewer, handleError, isLoading, pointCloudMode]);
+  }, [applyNavigation, backend, editorView, getViewer, handleError, isLoading, pointCloudMode]);
 
   const handleLoadFile = useCallback(async (file: File, options: LoadOptions) => {
     const url = URL.createObjectURL(file);
@@ -409,8 +430,16 @@ export default function Home() {
   }, [pointCloudMode]);
 
   const handleResetCamera = useCallback(() => {
+    applyNavigation({ mode: 'orbit' });
     viewerRef.current?.resetCamera();
-  }, []);
+  }, [applyNavigation]);
+
+  const autoLoadedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!src || backend === 'detecting' || autoLoadedRef.current === src) return;
+    autoLoadedRef.current = src;
+    void loadScene(src, { progressiveLoad: true, splatAlphaRemovalThreshold: 1 });
+  }, [src, backend, loadScene]);
 
   const handleDemoSelect = useCallback(async (sceneName: string) => {
     const scene = DEMO_SCENES.find((s) => s.name === sceneName);
@@ -438,12 +467,17 @@ export default function Home() {
       const target = e.target as HTMLElement | null;
       if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.code === 'KeyV' && viewerRef.current?.setNavigation) {
+        const i = NAVIGATION_CYCLE.indexOf(navigationRef.current.mode);
+        applyNavigation({ mode: NAVIGATION_CYCLE[(i + 1) % NAVIGATION_CYCLE.length] });
+        return;
+      }
       const view = viewByKey[e.key];
       if (view) viewerRef.current?.setCameraView(view);
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, []);
+  }, [applyNavigation]);
 
   const viewerProps = {
     onProgress: handleProgress,
@@ -455,50 +489,54 @@ export default function Home() {
   };
 
   return (
-    <div className="relative w-screen h-[100dvh] overflow-hidden bg-[#c8c8cd] dark:bg-black">
+    <div className="msv">
 
-      {/* ── Sidebar (desktop) ── */}
-      {!isMobile && sidebarOpen && (
-        <Sidebar
-          models={DEMO_SCENES}
-          activeId={activeScene}
-          onSelectModel={handleDemoSelect}
-          onUpload={() => setShowUploader(true)}
-          isOpen={sidebarOpen}
-          setIsOpen={setSidebarOpen}
-        />
-      )}
+      {showUI && (
+        <>
+          {/* ── Sidebar (desktop) ── */}
+          {!isMobile && sidebarOpen && (
+            <Sidebar
+              models={DEMO_SCENES}
+              activeId={activeScene}
+              onSelectModel={handleDemoSelect}
+              onUpload={() => setShowUploader(true)}
+              isOpen={sidebarOpen}
+              setIsOpen={setSidebarOpen}
+            />
+          )}
 
-      {/* ── Sidebar Mobile Sheet (hidden while the settings panel uses the bottom of the screen) ── */}
-      {isMobile && !advancedOpen && (
-        <SidebarMobileSheet
-          sheetState={mobileSheetState}
-          onSheetStateChange={setMobileSheetState}
-          models={DEMO_SCENES}
-          activeId={activeScene}
-          onSelectModel={handleDemoSelect}
-          onUpload={() => setShowUploader(true)}
-          searchPlaceholder="Buscar escenas…"
-        />
-      )}
+          {/* ── Sidebar Mobile Sheet (hidden while the settings panel uses the bottom of the screen) ── */}
+          {isMobile && !advancedOpen && (
+            <SidebarMobileSheet
+              sheetState={mobileSheetState}
+              onSheetStateChange={setMobileSheetState}
+              models={DEMO_SCENES}
+              activeId={activeScene}
+              onSelectModel={handleDemoSelect}
+              onUpload={() => setShowUploader(true)}
+              searchPlaceholder="Buscar escenas…"
+            />
+          )}
 
-      {/* ── Uploader Dialog ── */}
-      <Dialog open={showUploader} onOpenChange={setShowUploader}>
-        <DialogContent className="glass glass-strong panel !rounded-[var(--ui-panel-radius)] text-neutral-900 dark:text-white max-w-2xl max-h-[90vh] overflow-y-auto p-6">
-          <DialogHeader>
-            <DialogTitle className="text-neutral-900 dark:text-white font-semibold tracking-tight">Cargar escena</DialogTitle>
-          </DialogHeader>
-          <SceneUploader onLoadFile={handleLoadFile} onLoadURL={handleLoadURL} isLoading={isLoading} />
-        </DialogContent>
-      </Dialog>
+          {/* ── Uploader Dialog ── */}
+          <Dialog open={showUploader} onOpenChange={setShowUploader}>
+            <DialogContent className="glass glass-strong panel !rounded-[var(--ui-panel-radius)] text-neutral-900 dark:text-white max-w-2xl max-h-[90vh] overflow-y-auto p-6">
+              <DialogHeader>
+                <DialogTitle className="text-neutral-900 dark:text-white font-semibold tracking-tight">Cargar escena</DialogTitle>
+              </DialogHeader>
+              <SceneUploader onLoadFile={handleLoadFile} onLoadURL={handleLoadURL} isLoading={isLoading} />
+            </DialogContent>
+          </Dialog>
 
-      {/* ── Open sidebar button (desktop only) ── */}
-      {!isMobile && !sidebarOpen && (
-        <div className="absolute top-6 left-6 z-[300] glass dock">
-          <button onClick={() => setSidebarOpen(true)} className="pill-btn" title="Mostrar panel" aria-label="Mostrar panel">
-            <ChevronRight className="w-5 h-5" />
-          </button>
-        </div>
+          {/* ── Open sidebar button (desktop only) ── */}
+          {!isMobile && !sidebarOpen && (
+            <div className="absolute top-6 left-6 z-[300] glass dock">
+              <button onClick={() => setSidebarOpen(true)} className="pill-btn" title="Mostrar panel" aria-label="Mostrar panel">
+                <ChevronRight className="w-5 h-5" />
+              </button>
+            </div>
+          )}
+        </>
       )}
 
       {/* ── Main Viewer ── */}
@@ -513,115 +551,150 @@ export default function Home() {
         )}
 
         <ProgressiveLoader state={progressiveState} />
-        <InfoPanel info={sceneInfo} visible={infoVisible} onToggle={() => setInfoVisible((v) => !v)} />
-        <PerformanceBenchmarkPanel info={benchmarkInfo} visible={benchmarkVisible} />
-      </main>
-
-      {/* ── Right-side dock ── */}
-      <nav
-        aria-label="Herramientas del visor"
-        className="absolute top-4 right-4 md:top-6 md:right-6 z-[25000] glass dock flex-col items-center"
-      >
-        <button
-          className="pill-btn"
-          onClick={toggleTheme}
-          title={theme === 'dark' ? 'Modo claro' : 'Modo oscuro'}
-          aria-label={theme === 'dark' ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'}
-        >
-          {theme === 'dark' ? <Sun className="w-4 h-4" strokeWidth={1.5} /> : <Moon className="w-4 h-4" strokeWidth={1.5} />}
-        </button>
-        <button className="pill-btn" onClick={handleResetCamera} title="Enfocar escena (0)" aria-label="Enfocar escena">
-          <Crosshair className="w-4 h-4" />
-        </button>
-        <button
-          className="pill-btn"
-          onClick={handleTogglePointCloud}
-          title={pointCloudMode ? 'Modo splats' : 'Modo puntos'}
-          aria-label="Alternar modo puntos"
-          aria-pressed={pointCloudMode}
-        >
-          {pointCloudMode ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
-        </button>
-        <button
-          className="pill-btn"
-          onClick={() => setAdvancedOpen((v) => !v)}
-          title="Controles avanzados"
-          aria-label="Controles avanzados"
-          aria-pressed={advancedOpen}
-        >
-          <SlidersHorizontal className="w-4 h-4" />
-        </button>
-        {backend !== 'detecting' && (
-          <button
-            className="pill-btn"
-            onClick={() => {
-              const next = !editorView;
-              setEditorView(next);
-              viewerRef.current?.setEditorViewVisible(next);
-            }}
-            title="Vista editor: cámara, frustum y minimapa (clic para navegar)"
-            aria-label="Modo editor"
-            aria-pressed={editorView}
-          >
-            <Camera className="w-4 h-4" />
-          </button>
-        )}
-
-        <div className="dock-divider my-1" />
-
-        <button
-          className="pill-btn"
-          onClick={() => {
-            const next = !benchmarkVisible;
-            setBenchmarkVisible(next);
-            if (next) setInfoVisible(false);
-          }}
-          title="Benchmark 2026"
-          aria-label="Benchmark"
-          aria-pressed={benchmarkVisible}
-        >
-          <Activity className="w-4 h-4" />
-        </button>
-        <button
-          className="pill-btn"
-          onClick={() => {
-            const next = !infoVisible;
-            setInfoVisible(next);
-            if (next) setBenchmarkVisible(false);
-          }}
-          title="Información"
-          aria-label="Información de la escena"
-          aria-pressed={infoVisible}
-        >
-          <Info className="w-4 h-4" />
-        </button>
-
-        {hasScene && (
+        {showUI && (
           <>
-            <div className="dock-divider my-1" />
-            <button className="pill-btn pill-btn--danger" onClick={handleRemoveScene} title="Eliminar escena" aria-label="Eliminar escena">
-              <Trash2 className="w-4 h-4" />
-            </button>
+            <InfoPanel info={sceneInfo} visible={infoVisible} onToggle={() => setInfoVisible((v) => !v)} />
+            {navigationOpen && backend === 'webgpu' && (
+              <NavigationPanel settings={navigation} onChange={applyNavigation} onClose={() => setNavigationOpen(false)} />
+            )}
+            <PerformanceBenchmarkPanel info={benchmarkInfo} visible={benchmarkVisible} />
           </>
         )}
-      </nav>
+      </main>
 
-      {/* ── Editor view frame: matches the GPU picture-in-picture rect (30%, min 120px, 12px margin) ── */}
-      {editorView && (
-        <div className="absolute bottom-3 right-3 w-[30%] h-[30%] min-w-[120px] min-h-[120px] pointer-events-none border border-cyan-600 dark:border-cyan-300/60 rounded-[4px] z-[200]">
-          <span className="absolute -top-8 right-0 glass rounded-full px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-cyan-900 dark:text-cyan-200 whitespace-nowrap">
-            {backend === 'webgpu' ? 'Vista editor · clic para navegar' : 'Vista editor'}
-          </span>
-        </div>
+      {showUI && (
+        <>
+          {/* ── Right-side dock ── */}
+          <nav
+            aria-label="Herramientas del visor"
+            className="absolute top-4 right-4 md:top-6 md:right-6 z-[25000] glass dock flex-col items-center"
+          >
+            <button
+              className="pill-btn"
+              onClick={toggleTheme}
+              title={theme === 'dark' ? 'Modo claro' : 'Modo oscuro'}
+              aria-label={theme === 'dark' ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'}
+            >
+              {theme === 'dark' ? <Sun className="w-4 h-4" strokeWidth={1.5} /> : <Moon className="w-4 h-4" strokeWidth={1.5} />}
+            </button>
+            <button className="pill-btn" onClick={handleResetCamera} title="Enfocar escena (0)" aria-label="Enfocar escena">
+              <Crosshair className="w-4 h-4" />
+            </button>
+            <button
+              className="pill-btn"
+              onClick={handleTogglePointCloud}
+              title={pointCloudMode ? 'Modo splats' : 'Modo puntos'}
+              aria-label="Alternar modo puntos"
+              aria-pressed={pointCloudMode}
+            >
+              {pointCloudMode ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+            </button>
+            <button
+              className="pill-btn"
+              onClick={() => setAdvancedOpen((v) => !v)}
+              title="Controles avanzados"
+              aria-label="Controles avanzados"
+              aria-pressed={advancedOpen}
+            >
+              <SlidersHorizontal className="w-4 h-4" />
+            </button>
+            {backend !== 'detecting' && (
+              <button
+                className="pill-btn"
+                onClick={() => {
+                  const next = !editorView;
+                  setEditorView(next);
+                  viewerRef.current?.setEditorViewVisible(next);
+                }}
+                title="Vista editor: cámara, frustum y minimapa (clic para navegar)"
+                aria-label="Modo editor"
+                aria-pressed={editorView}
+              >
+                <Camera className="w-4 h-4" />
+              </button>
+            )}
+
+            <div className="dock-divider my-1" />
+
+            {backend === 'webgpu' && (
+              <button
+                className="pill-btn"
+                onClick={() => {
+                  const next = !navigationOpen;
+                  setNavigationOpen(next);
+                  if (next) {
+                    setBenchmarkVisible(false);
+                    setInfoVisible(false);
+                  }
+                }}
+                title="Navegación (V cambia de modo)"
+                aria-label="Navegación"
+                aria-pressed={navigationOpen}
+              >
+                <Compass className="w-4 h-4" />
+              </button>
+            )}
+            <button
+              className="pill-btn"
+              onClick={() => {
+                const next = !benchmarkVisible;
+                setBenchmarkVisible(next);
+                if (next) {
+                  setInfoVisible(false);
+                  setNavigationOpen(false);
+                }
+              }}
+              title="Benchmark 2026"
+              aria-label="Benchmark"
+              aria-pressed={benchmarkVisible}
+            >
+              <Activity className="w-4 h-4" />
+            </button>
+            <button
+              className="pill-btn"
+              onClick={() => {
+                const next = !infoVisible;
+                setInfoVisible(next);
+                if (next) {
+                  setBenchmarkVisible(false);
+                  setNavigationOpen(false);
+                }
+              }}
+              title="Información"
+              aria-label="Información de la escena"
+              aria-pressed={infoVisible}
+            >
+              <Info className="w-4 h-4" />
+            </button>
+
+            {hasScene && (
+              <>
+                <div className="dock-divider my-1" />
+                <button className="pill-btn pill-btn--danger" onClick={handleRemoveScene} title="Eliminar escena" aria-label="Eliminar escena">
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </>
+            )}
+          </nav>
+
+          {/* ── Editor view frame: matches the GPU picture-in-picture rect (30%, min 120px, 12px margin) ── */}
+          {editorView && (
+            <div className="absolute bottom-3 right-3 w-[30%] h-[30%] min-w-[120px] min-h-[120px] pointer-events-none border border-cyan-600 dark:border-cyan-300/60 rounded-[4px] z-[200]">
+              <span className="absolute -top-8 right-0 glass rounded-full px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-cyan-900 dark:text-cyan-200 whitespace-nowrap">
+                {backend === 'webgpu' ? 'Vista editor · clic para navegar' : 'Vista editor'}
+              </span>
+            </div>
+          )}
+
+          <AdvancedControlsPanel
+            viewerRef={viewerRef}
+            visible={advancedOpen}
+            onClose={() => setAdvancedOpen(false)}
+            sceneLight={sceneLight}
+            onToggleSceneBackground={() => setSceneBgOverride(sceneLight ? 'dark' : 'light')}
+          />
+        </>
       )}
-
-      <AdvancedControlsPanel
-        viewerRef={viewerRef}
-        visible={advancedOpen}
-        onClose={() => setAdvancedOpen(false)}
-        sceneLight={sceneLight}
-        onToggleSceneBackground={() => setSceneBgOverride(sceneLight ? 'dark' : 'light')}
-      />
     </div>
   );
 }

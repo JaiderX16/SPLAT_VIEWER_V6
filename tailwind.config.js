@@ -1,6 +1,9 @@
 /** @type {import('tailwindcss').Config} */
 module.exports = {
   darkMode: ["class"],
+  important: '.msv',
+  // Library builds are embedded in a page that already ships Tailwind's preflight.
+  corePlugins: { preflight: process.env.SPLAT_LIB !== '1' },
   content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
   theme: {
     extend: {

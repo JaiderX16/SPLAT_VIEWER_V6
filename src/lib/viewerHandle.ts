@@ -10,6 +10,22 @@ export type CameraView = 'front' | 'back' | 'left' | 'right' | 'top' | 'bottom' 
 
 export type SceneFormat = 'auto' | 'ply' | 'splat' | 'ksplat' | 'spz';
 
+/**
+ * How the user moves through the scene: orbit around it, or explore it in first
+ * person (walk on the ground, panorama look-around, free fly).
+ */
+export type NavigationMode = 'orbit' | 'walk' | 'look' | 'fly';
+/** Order of the navigation panel and of the `V` shortcut. */
+export const NAVIGATION_CYCLE: NavigationMode[] = ['walk', 'look', 'fly', 'orbit'];
+
+export interface NavigationSettings {
+  mode: NavigationMode;
+  /** First-person movement speed multiplier. */
+  speed: number;
+  /** Turn the first-person view with the device's orientation (phones). */
+  gyro: boolean;
+}
+
 /** Distance level-of-detail preset (WebGPU backend). */
 export type LodQuality = 'high' | 'balanced' | 'performance';
 
@@ -69,6 +85,8 @@ export interface SplatViewerHandle {
   setLodQuality: (quality: LodQuality) => void;
   getLodQuality: () => LodQuality;
   setEditorViewVisible: (visible: boolean) => void;
+  /** First-person navigation; absent when the backend only orbits. */
+  setNavigation?: (settings: NavigationSettings) => void;
 }
 
 export interface SplatViewerProps {

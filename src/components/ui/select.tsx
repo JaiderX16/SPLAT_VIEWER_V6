@@ -56,7 +56,7 @@ function SelectContent({
   ...props
 }: React.ComponentProps<typeof SelectPrimitive.Content>) {
   return (
-    <SelectPrimitive.Portal>
+    <SelectPrimitive.Portal container={document.querySelector<HTMLElement>('.msv')}>
       <SelectPrimitive.Content
         data-slot="select-content"
         className={cn(
