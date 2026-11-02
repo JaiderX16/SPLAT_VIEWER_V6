@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, type RefObject } from 'react';
+import { GlassBackdrop } from '@/components/LiquidGlass';
 import { Box, Grid3x3, Compass, Sun, Moon, X } from 'lucide-react';
 import { Slider } from '@/components/ui/slider';
 import type { CameraView, LodQuality, SplatViewerHandle } from '@/lib/viewerHandle';
@@ -100,7 +101,8 @@ export default function AdvancedControlsPanel({
       className="absolute bottom-4 left-1/2 -translate-x-1/2 z-[400] w-max max-w-[calc(100vw-2rem)]"
     >
       {/* Concentric: 22px radius − 6px padding = 16px → h-8 pills are exactly round. */}
-      <div className="glass flex flex-wrap items-center justify-center gap-x-1 gap-y-1 rounded-[22px] p-1.5 text-neutral-900 dark:text-white">
+      <div className="glass relative isolate flex flex-wrap items-center justify-center gap-x-1 gap-y-1 rounded-[22px] p-1.5 text-neutral-900 dark:text-white">
+          <GlassBackdrop radius={22} />
         {/* View presets */}
         <div className="flex items-center gap-1">
           {VIEW_PRESETS.map((preset) => (

@@ -2,6 +2,47 @@
 
 A React + TypeScript viewer for 3D Gaussian Splatting scenes. `.splat` files render through a custom **WebGPU** renderer built on [vgpu](https://github.com/vercel-labs/vgpu); other formats, and browsers without WebGPU, fall back to [GaussianSplats3D](https://github.com/mkkellogg/GaussianSplats3D) (WebGL), loaded on demand.
 
+## Install
+
+```bash
+npm i @memoria-labs/splat-viewer
+```
+
+Requires React 18+ and a browser with WebGPU for `.splat` files.
+
+```jsx
+import { SplatViewer } from '@memoria-labs/splat-viewer';
+import '@memoria-labs/splat-viewer/style.css';
+
+// Fills its parent: give the container a size.
+<div style={{ height: '100dvh' }}>
+  <SplatViewer />
+</div>
+
+// Just the scene, no sidebar / dock / panels (keyboard shortcuts still work):
+<SplatViewer showUI={false} src="https://example.com/scene.splat" />
+```
+
+| Prop | Default | |
+|---|---|---|
+| `showUI` | `true` | Sidebar, dock and panels. |
+| `src` | — | Scene URL to load on mount. |
+| `initialNavigation` | `'orbit'` | Mode once `src` loads: `'orbit'` (circle an exterior), `'look'` (stand inside an interior), `'walk'` or `'fly'`. |
+
+All styles are scoped to the viewer's root (`.msv`), so they don't leak into the host page. With Vite, keep the package out of dependency pre-bundling (its worker is loaded with `new URL(..., import.meta.url)`):
+
+```js
+// vite.config.js
+optimizeDeps: {
+  exclude: ['@memoria-labs/splat-viewer'],
+  include: [
+    '@memoria-labs/splat-viewer > react',
+    '@memoria-labs/splat-viewer > react/jsx-runtime',
+    '@memoria-labs/splat-viewer > react-dom',
+  ],
+},
+```
+
 ## Features
 
 - **WebGPU renderer** — one instanced draw per frame, 32-byte packed splats, on-demand rendering (an idle scene costs ~0 GPU).
@@ -9,6 +50,8 @@ A React + TypeScript viewer for 3D Gaussian Splatting scenes. `.splat` files ren
 - **Worker depth sort with frustum culling** — 16-bit counting sort; the order buffer ping-pongs between threads, so steady-state sorting allocates nothing.
 - **Distance LOD** — far splats covering a pixel or two are thinned to a stable fraction and enlarged to keep coverage (presets: Alta / Media / Rápida).
 - **Fluid camera** — damped orbit, pan, dolly, and pinch; cinematic intro with auto-orbit that stops on interaction.
+- **First-person navigation** — walk through the place at eye height (follows the ground), panorama look-around, or free fly; WASD, touch gestures, tap-to-go and gyroscope look (key `V` cycles modes).
+- **Cinematic reveal** — splats stream in as points and a wave grows them into the full scene, outward from the origin.
 - **Click to navigate** — click a surface to fly toward it; in the editor view (minimap) click to glide the orbit pivot there.
 - **Editor view** — picture-in-picture overview with grid, the camera frustum, and the splats currently being drawn.
 - **Advanced controls** — view presets (keys `0`–`6`), orthographic/perspective, FOV, grid and axes, scene background.

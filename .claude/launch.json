@@ -4,14 +4,39 @@
     {
       "name": "dev",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeArgs": [
+        "run",
+        "dev"
+      ],
       "port": 3000
     },
     {
       "name": "memoria",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["--prefix", "../MemorIA", "run", "dev", "--", "--port", "5173"],
+      "runtimeArgs": [
+        "--prefix",
+        "../MemorIA",
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "5173"
+      ],
       "port": 5173
+    },
+    {
+      "name": "radar",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "../../SPOT/Memoria-Radar",
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "5175"
+      ],
+      "port": 5175
     }
   ]
 }

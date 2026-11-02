@@ -96,6 +96,7 @@
     --glass-highlight: rgba(255, 255, 255, 0.4);
     --glass-depth: 0 10px 40px -12px rgba(0, 0, 0, 0.18);
     --glass-blur: 40px;
+    --liquid-glass-tint: rgba(198, 198, 204, 0.32); /* liquid glass: lower = more refraction shows */
     --ui-field: #c8c8cd;
     --ui-ink: #171717;              /* text primary */
     --ui-ink-2: #262626;            /* text secondary, idle icons (neutral-800) */
@@ -115,6 +116,7 @@
     --glass-highlight: rgba(255, 255, 255, 0.18);
     --glass-depth: 0 10px 40px -12px rgba(0, 0, 0, 0.35);
     --glass-blur: 32px;
+    --liquid-glass-tint: rgba(30, 30, 32, 0.22);
     --ui-field: #0a0a0c;
     --ui-ink: #ffffff;
     --ui-ink-2: rgba(255, 255, 255, 0.85);

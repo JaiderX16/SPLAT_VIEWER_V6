@@ -1,6 +1,7 @@
 import React from 'react';
 import { Progress } from '@/components/ui/progress';
 import { Loader2, Download, CheckCircle2, AlertCircle } from 'lucide-react';
+import { GlassBackdrop } from '@/components/LiquidGlass';
 
 export interface ProgressiveLoadState {
   percent: number;
@@ -13,18 +14,51 @@ export interface ProgressiveLoadState {
 
 interface ProgressiveLoaderProps {
   state: ProgressiveLoadState;
+  /** Small progress ring in the corner (embedded viewers); hidden once loaded. */
+  compact?: boolean;
 }
 
-const ProgressiveLoader: React.FC<ProgressiveLoaderProps> = ({ state }) => {
+const RING_R = 11;
+const RING_C = 2 * Math.PI * RING_R;
+
+const ProgressiveLoader: React.FC<ProgressiveLoaderProps> = ({ state, compact = false }) => {
   if (state.status === 'idle') return null;
 
   const isError = state.status === 'error';
   const isDone = state.status === 'done';
   const isProcessing = state.status === 'processing';
 
+  if (compact) {
+    if (isDone) return null;
+    return (
+      <div
+        className="absolute left-3 bottom-3 z-50 glass size-8 rounded-full flex items-center justify-center pointer-events-none"
+        role="status"
+        aria-live="polite"
+        aria-label={`${state.message} ${state.percentLabel}`}
+        title={`${state.message} ${state.percentLabel}`}
+      >
+        {isError ? (
+          <AlertCircle className="w-4 h-4 text-red-900 dark:text-red-100" />
+        ) : (
+          <svg viewBox="0 0 28 28" className={`w-6 h-6 -rotate-90 ${isProcessing ? 'animate-spin' : ''}`} aria-hidden>
+            <circle cx="14" cy="14" r={RING_R} fill="none" strokeWidth="2.5" className="stroke-black/[0.10] dark:stroke-white/[0.20]" />
+            <circle
+              cx="14" cy="14" r={RING_R} fill="none" strokeWidth="2.5" strokeLinecap="round"
+              className="stroke-neutral-900 dark:stroke-white transition-[stroke-dashoffset] duration-300"
+              strokeDasharray={RING_C}
+              strokeDashoffset={RING_C * (1 - Math.max(0.04, state.percent / 100))}
+            />
+          </svg>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="absolute inset-x-0 bottom-44 md:bottom-24 z-50 flex items-center justify-center pointer-events-none" role="status" aria-live="polite">
-      <div className="glass flex items-center gap-3 h-12 pl-4 pr-5 rounded-full pointer-events-auto min-w-[300px] max-w-[90vw]">
+      <div className="glass relative isolate flex items-center gap-3 h-12 pl-4 pr-5 rounded-full pointer-events-auto min-w-[300px] max-w-[90vw]">
+        <GlassBackdrop radius={24} />
         {isError ? (
           <AlertCircle className="w-4 h-4 text-red-900 dark:text-red-100 shrink-0" />
         ) : isDone ? (

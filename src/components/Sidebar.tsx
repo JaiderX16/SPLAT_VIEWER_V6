@@ -1,5 +1,6 @@
 import { X, Upload } from 'lucide-react';
 import { type LoadOptions } from '@/components/SceneUploader';
+import { GlassBackdrop } from '@/components/LiquidGlass';
 
 export interface SceneModelItem {
   name: string;
@@ -31,8 +32,9 @@ export default function Sidebar({
       aria-label="Panel lateral de escenas"
       // Concentric radii: pad 18 + 48px upload pill r24 = 42 (the 44px close pill sits ~concentric too);
       // rows: pad 8 + 40px circle r20 = 28.
-      className="absolute top-4 left-4 bottom-4 w-[320px] z-[300] flex flex-col gap-2 p-[18px] rounded-[42px] glass overflow-hidden"
+      className="absolute top-4 left-4 bottom-4 w-[320px] z-[300] flex flex-col gap-2 p-[18px] rounded-[42px] glass overflow-hidden isolate"
     >
+      <GlassBackdrop radius={42} />
       {/* Header */}
       <div className="flex justify-end">
         <button
