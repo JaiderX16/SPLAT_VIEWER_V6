@@ -1,4 +1,4 @@
-import { lazy, Suspense, useRef, useState, useCallback, useEffect } from 'react';
+import { forwardRef, lazy, Suspense, useImperativeHandle, useRef, useState, useCallback, useEffect } from 'react';
 import WebGPUSplatViewer from '@/components/WebGPUSplatViewer';
 import ProgressiveLoader, { type ProgressiveLoadState } from '@/components/ProgressiveLoader';
 import SceneUploader, { type LoadOptions } from '@/components/SceneUploader';
@@ -19,6 +19,8 @@ import {
   type RenderBackend,
   type SplatViewerHandle,
   type ViewerStats,
+  type CameraFraming,
+  type LodQuality,
 } from '@/lib/viewerHandle';
 import Sidebar from '@/components/Sidebar';
 import SidebarMobileSheet, { type SheetState } from '@/components/SidebarMobileSheet';
@@ -149,9 +151,26 @@ interface SplatViewerProps {
   src?: string;
   /** Navigation once `src` has loaded: 'orbit' circles an exterior, 'look' stands inside an interior. */
   initialNavigation?: NavigationMode;
+  /** Encuadre de `src`: punto que rodea la cámara, distancia y ángulos (solo WebGPU). */
+  framing?: CameraFraming;
+  /**
+   * Calidad por distancia. Por defecto 'high' sin UI (visor incrustado pequeño: el aclarado de
+   * splats lejanos lo deja borroso y su coste es bajo) y 'balanced' con UI.
+   */
+  quality?: LodQuality;
 }
 
-export default function Home({ showUI = true, src, initialNavigation = 'orbit' }: SplatViewerProps) {
+/** Lo que el host puede pedirle al visor por `ref`. */
+export interface SplatViewerRef {
+  /** Encuadre actual de la cámara (órbita u ojo en primera persona), para guardarlo; null sin escena WebGPU. */
+  getFraming: () => CameraFraming | null;
+  /** Vuelve al encuadre con que se cargó la escena. */
+  resetCamera: () => void;
+  /** Velocidad del giro automático en vueltas por minuto (0 lo para); para previsualizarla. */
+  setSpinSpeed: (rpm: number) => void;
+}
+
+const Home = forwardRef<SplatViewerRef, SplatViewerProps>(function Home({ showUI = true, src, initialNavigation = 'orbit', framing, quality }, ref) {
   const viewerRef = useRef<SplatViewerHandle | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
   /** The WebGPU scene canvas: the liquid glass refracts it live. */
@@ -188,6 +207,11 @@ export default function Home({ showUI = true, src, initialNavigation = 'orbit' }
     setNavigation(next);
     viewerRef.current?.setNavigation?.(next);
   }, []);
+  useImperativeHandle(ref, () => ({
+    getFraming: () => viewerRef.current?.getCameraFraming?.() ?? null,
+    resetCamera: () => viewerRef.current?.resetCamera(),
+    setSpinSpeed: (rpm: number) => viewerRef.current?.setSpinSpeed?.(rpm),
+  }), []);
   const [editorView, setEditorView] = useState(false);
 
   const isMobile = useIsMobile();
@@ -355,7 +379,7 @@ export default function Home({ showUI = true, src, initialNavigation = 'orbit' }
     });
   }, []);
 
-  const loadScene = useCallback(async (url: string, options?: Partial<LoadOptions>, nameHint = url) => {
+  const loadScene = useCallback(async (url: string, options?: Partial<LoadOptions> & { framing?: CameraFraming }, nameHint = url) => {
     if (isLoading || backend === 'detecting') return; // no overlapping loads
 
     // The WebGPU renderer handles .splat; other formats use the WebGL fallback.
@@ -384,7 +408,9 @@ export default function Home({ showUI = true, src, initialNavigation = 'orbit' }
       applyNavigation({ mode: 'orbit' });
       viewer.resetCamera();
       viewer.setEditorViewVisible(editorView);
+      if (lodQualityRef.current) viewer.setLodQuality(lodQualityRef.current);
       await viewer.addSplatScene(url, {
+        framing: options?.framing,
         splatAlphaRemovalThreshold: options?.splatAlphaRemovalThreshold ?? 1,
         progressiveLoad: options?.progressiveLoad ?? true,
         position: options?.position,
@@ -443,13 +469,23 @@ export default function Home({ showUI = true, src, initialNavigation = 'orbit' }
     viewerRef.current?.resetCamera();
   }, [applyNavigation]);
 
+  // Encuadre y calidad del visor incrustado: se leen al cargar `src`.
+  const framingRef = useRef(framing);
+  framingRef.current = framing;
+  const lodQualityRef = useRef<LodQuality | undefined>(quality ?? (showUI ? undefined : 'high'));
+  lodQualityRef.current = quality ?? (showUI ? undefined : 'high');
+
   const autoLoadedRef = useRef<string | null>(null);
   useEffect(() => {
     if (!src || backend === 'detecting' || autoLoadedRef.current === src) return;
     autoLoadedRef.current = src;
-    void loadScene(src, { progressiveLoad: true, splatAlphaRemovalThreshold: 1 }).then(() => {
+    void loadScene(src, { progressiveLoad: true, splatAlphaRemovalThreshold: 1, framing: framingRef.current ?? undefined }).then(() => {
       // First-person modes probe the ground, so they wait for the whole scene.
-      if (initialNavigation !== 'orbit' && autoLoadedRef.current === src) applyNavigation({ mode: initialNavigation });
+      if (initialNavigation === 'orbit' || autoLoadedRef.current !== src) return;
+      applyNavigation({ mode: initialNavigation });
+      // Interior con encuadre guardado: exactamente donde se dejó, sin buscar el suelo.
+      const f = framingRef.current;
+      if (f?.eye) viewerRef.current?.standAt?.(f.eye, f.target);
     });
   }, [src, backend, loadScene, initialNavigation, applyNavigation]);
 
@@ -714,4 +750,6 @@ export default function Home({ showUI = true, src, initialNavigation = 'orbit' }
       </div>
     </LiquidGlassProvider>
   );
-}
+});
+
+export default Home;

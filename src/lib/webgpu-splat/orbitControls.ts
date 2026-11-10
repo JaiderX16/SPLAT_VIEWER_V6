@@ -31,6 +31,16 @@ const MOVE_KEYS = new Set([
 ]);
 
 const easeInOut = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+/** Arranca rápido y frena hasta pararse: para entradas que deben posarse en un encuadre. */
+const easeOutCubic = (t: number) => 1 - Math.pow(1 - t, 3);
+/**
+ * Curva de 0 a 1 con pendiente `a` al empezar y `b` al terminar (Hermite cúbica; monótona si a² + b² ≤ 9).
+ * Con b > 0 el movimiento llega a su fin todavía a esa velocidad, para seguir sin pausa.
+ */
+const hermite = (a: number, b: number) => (t: number) => {
+  const t2 = t * t, t3 = t2 * t;
+  return (-2 * t3 + 3 * t2) + a * (t3 - 2 * t2 + t) + b * (t3 - t2);
+};
 const wrapAngle = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 
 /**
@@ -99,6 +109,9 @@ export class OrbitControls {
     toPhi: number;
     fromRadius: number;
     toRadius: number;
+    ease?: (t: number) => number;
+    /** Curva propia del giro (si no, la de `ease`). */
+    easeTheta?: (t: number) => number;
   } | null = null;
   private eyeTravel: { start: number; duration: number; from: Vec3; to: Vec3 } | null = null;
   private element: HTMLElement | null = null;
@@ -254,6 +267,41 @@ export class OrbitControls {
     this.dirty = true;
   }
 
+  /**
+   * Entrada cinematográfica que pasa exactamente por `position` mirando a `target`: parte desde
+   * `fromRadius`, un poco más desde arriba y `sweep` radianes antes. Distancia y altura se posan;
+   * el giro llega al encuadre a `endSpeed` rad/s para que el giro automático siga sin pausa.
+   * Cualquier gesto la corta.
+   */
+  introTo(target: Vec3, position: Vec3, fromRadius: number, sweep: number, durationMs: number, endSpeed = 0) {
+    this.setPose(position, target);
+    const toTheta = this.theta, toPhi = this.phi, toRadius = this.radius;
+    const fromTheta = toTheta - sweep;
+    const fromPhi = this.clampPhi(toPhi - 0.3);
+    const from = this.clampRadius(fromRadius);
+    this.autoRotate = false;
+    this.fly = null;
+    this.theta = this.goalTheta = fromTheta;
+    this.phi = this.goalPhi = fromPhi;
+    this.radius = this.goalRadius = from;
+    this.travel = {
+      start: performance.now(),
+      duration: durationMs,
+      fromTarget: [...target],
+      toTarget: [...target],
+      fromTheta,
+      toTheta,
+      fromPhi,
+      toPhi,
+      fromRadius: from,
+      toRadius,
+      ease: easeOutCubic,
+      // Pendiente final = velocidad de reposo, en unidades de la curva (fracción del giro por duración).
+      easeTheta: hermite(2.4, Math.min(1.5, (endSpeed * durationMs) / 1000 / Math.max(sweep, 1e-3))),
+    };
+    this.dirty = true;
+  }
+
   /** Same as `travelTo`, keeping the current viewing angle and distance (first person: walk there). */
   travelPivotTo(target: Vec3, durationMs = 1100) {
     if (this.navMode === 'fly') {
@@ -327,6 +375,11 @@ export class OrbitControls {
 
   get isFlying() {
     return this.fly !== null;
+  }
+
+  /** Hay un viaje en órbita en curso (clic en la escena o entrada hacia un encuadre). */
+  get isOrbitTravelling() {
+    return this.travel !== null;
   }
 
   /** Device-orientation look (phones): turning the device turns the first-person view. */
@@ -420,9 +473,10 @@ export class OrbitControls {
     if (this.travel) {
       const tr = this.travel;
       const t = Math.min((performance.now() - tr.start) / tr.duration, 1);
-      const e = easeInOut(t);
+      const e = (tr.ease ?? easeInOut)(t);
       const lerp = (a: number, b: number) => a + (b - a) * e;
-      this.theta = this.goalTheta = lerp(tr.fromTheta, tr.toTheta);
+      const eTheta = (tr.easeTheta ?? tr.ease ?? easeInOut)(t);
+      this.theta = this.goalTheta = tr.fromTheta + (tr.toTheta - tr.fromTheta) * eTheta;
       this.phi = this.goalPhi = lerp(tr.fromPhi, tr.toPhi);
       this.radius = this.goalRadius = lerp(tr.fromRadius, tr.toRadius);
       this.target = [lerp(tr.fromTarget[0], tr.toTarget[0]), lerp(tr.fromTarget[1], tr.toTarget[1]), lerp(tr.fromTarget[2], tr.toTarget[2])];

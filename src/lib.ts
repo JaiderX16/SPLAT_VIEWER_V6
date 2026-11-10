@@ -4,4 +4,5 @@
  */
 import './index.css';
 
-export { default as SplatViewer } from './pages/Home';
+export { default as SplatViewer, type SplatViewerRef } from './pages/Home';
+export type { CameraFraming, LodQuality } from './lib/viewerHandle';

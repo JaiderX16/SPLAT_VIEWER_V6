@@ -91,6 +91,8 @@ const CLICK_MAX_MS = 500;
 const GROUND_PROBE_MS = 150;
 /** Entering walk / panorama from orbit lands this far (x scene scale) back from the pivot, facing it. */
 const STAND_BACK = 0.6;
+/** Cuánto gira la entrada hacia un encuadre guardado antes de posarse (135°). */
+const INTRO_SWEEP = Math.PI * 0.75;
 /** Click-to-travel lands at this fraction of the distance to the clicked point. */
 const TRAVEL_DISTANCE_FACTOR = 0.45;
 const TRAVEL_MS = 900;
@@ -450,6 +452,42 @@ export class SplatRenderer {
   }
 
 
+  /** Primera persona: cámara en `eye` mirando a `target`, tal cual (sin bajarla al suelo). */
+  standAt(eye: Vec3, target: Vec3) {
+    this.navToken++; // anula una bajada al suelo pendiente
+    this.flyEndSpeed = null;
+    this.controls.autoRotate = false;
+    this.controls.setPose(eye, target);
+    this.lastProbeEye = [...eye]; // no recolocar la altura hasta que se mueva
+    this.needsRender = true;
+  }
+
+  /**
+   * Entrada que gira y se acerca hasta pasar por el encuadre guardado y sigue girando despacio a
+   * `endSpeed` (vueltas por minuto) sin pausa: llega al encuadre ya a esa velocidad. Mientras dura la
+   * entrada manda ella; al acabar, el giro automático continúa. Si la persona toca la escena, se para.
+   */
+  playFramedIntro(position: Vec3, target: Vec3, fromDistance: number, durationMs: number, endSpeed: number) {
+    this.navToken++;
+    this.slowdown = null;
+    this.flyEndSpeed = null;
+    this.controls.introTo(target, position, fromDistance, INTRO_SWEEP, durationMs, (endSpeed * 2 * Math.PI) / 60);
+    // Con velocidad 0 la entrada frena hasta posarse y la cámara se queda quieta en el encuadre.
+    this.controls.autoRotate = endSpeed > 0;
+    this.controls.autoRotateSpeed = endSpeed;
+    this.needsRender = true;
+  }
+
+  /** Giro automático en órbita a `rpm` vueltas por minuto (0 lo para). No toca una entrada en curso más que su velocidad final. */
+  setSpinSpeed(rpm: number) {
+    const v = Math.max(0, rpm);
+    this.flyEndSpeed = null;
+    this.slowdown = null;
+    this.controls.autoRotateSpeed = v;
+    this.controls.autoRotate = v > 0 && this.controls.mode === 'orbit';
+    this.needsRender = true;
+  }
+
   /** Auto-rotate at `speed` during a dolly fly-in, then settle to `endSpeed`. */
   playIntro(position: Vec3, target: Vec3, fromDistance: number, toDistance: number, durationMs: number, introSpeed: number, endSpeed: number) {
     const dir = [position[0] - target[0], position[1] - target[1], position[2] - target[2]] as Vec3;
@@ -531,7 +569,8 @@ export class SplatRenderer {
       this.slowdown = null;
       return;
     }
-    if (this.controls.isFlying || this.reveal) return;
+    // Espera a que termine la entrada (y la aparición) para pasar del giro de entrada al de reposo.
+    if (this.controls.isFlying || this.controls.isOrbitTravelling || this.reveal) return;
     this.slowdown ??= { from: this.controls.autoRotateSpeed, start: now };
     const t = Math.min((now - this.slowdown.start) / REVEAL.SLOWDOWN_MS, 1);
     this.controls.autoRotateSpeed = this.slowdown.from + (end - this.slowdown.from) * (1 - (1 - t) * (1 - t));

@@ -29,7 +29,30 @@ export interface NavigationSettings {
 /** Distance level-of-detail preset (WebGPU backend). */
 export type LodQuality = 'high' | 'balanced' | 'performance';
 
+/**
+ * Encuadre propio de un modelo. Solo el renderizador WebGPU (.splat) lo aplica; sin él se usa CAMERA/INTRO.
+ * - Exterior (órbita): `target` es el punto que rodea la cámara; `distance`, `elevation` y `azimuth`
+ *   dicen desde dónde lo mira.
+ * - Interior (primera persona): `eye` es dónde está parada la cámara y `target` el punto al que mira.
+ * Coordenadas de la escena; el eje vertical es -Y.
+ */
+export interface CameraFraming {
+  target: [number, number, number];
+  /** Interior: posición de la cámara. Si está, se ignoran distance/elevation/azimuth. */
+  eye?: [number, number, number];
+  /** Distancia final al objetivo tras la entrada (por defecto INTRO.END_DISTANCE). */
+  distance?: number;
+  /** Grados sobre el horizonte desde los que mira (por defecto los del encuadre inicial). */
+  elevation?: number;
+  /** Grados alrededor del eje vertical (0: desde +Z). */
+  azimuth?: number;
+  /** Exterior: vueltas por minuto del giro lento tras la entrada (0 = quieta; por defecto INTRO.SPEED_SLOW). */
+  speed?: number;
+}
+
 export interface SceneLoadOptions {
+  /** Encuadre de este modelo (ver CameraFraming). */
+  framing?: CameraFraming;
   format?: SceneFormat;
   splatAlphaRemovalThreshold?: number;
   progressiveLoad?: boolean;
@@ -87,6 +110,12 @@ export interface SplatViewerHandle {
   setEditorViewVisible: (visible: boolean) => void;
   /** First-person navigation; absent when the backend only orbits. */
   setNavigation?: (settings: NavigationSettings) => void;
+  /** Encuadre actual de la cámara (para guardarlo); null si el backend no lo admite. */
+  getCameraFraming?: () => CameraFraming | null;
+  /** Primera persona: coloca la cámara en `eye` mirando a `target`, sin bajarla al suelo. */
+  standAt?: (eye: [number, number, number], target: [number, number, number]) => void;
+  /** Giro automático en órbita a `rpm` vueltas por minuto (0 lo para). */
+  setSpinSpeed?: (rpm: number) => void;
 }
 
 export interface SplatViewerProps {
@@ -121,6 +150,44 @@ export const INTRO = {
   SPEED_INTRO: 2.2,
   SPEED_SLOW: 0.8,
 };
+
+const DEFAULT_ELEVATION = (Math.atan2(-CAMERA.INITIAL_POSITION[1], Math.hypot(CAMERA.INITIAL_POSITION[0], CAMERA.INITIAL_POSITION[2])) * 180) / Math.PI;
+
+/** Posición, objetivo y distancia final de la cámara para un encuadre (o el de por defecto). */
+export function framingPose(framing?: CameraFraming | null) {
+  if (framing?.eye) {
+    const e = framing.eye, t = framing.target;
+    const distance = Math.max(Math.hypot(e[0] - t[0], e[1] - t[1], e[2] - t[2]), 1e-3);
+    return { position: e, target: t, distance, startDistance: distance, initialDistance: distance };
+  }
+  if (!framing) {
+    const p = CAMERA.INITIAL_POSITION;
+    return { position: p, target: CAMERA.LOOK_AT, distance: INTRO.END_DISTANCE, startDistance: INTRO.START_DISTANCE, initialDistance: Math.hypot(p[0], p[1], p[2]) };
+  }
+  const distance = framing.distance ?? INTRO.END_DISTANCE;
+  const el = ((framing.elevation ?? DEFAULT_ELEVATION) * Math.PI) / 180;
+  const az = ((framing.azimuth ?? 0) * Math.PI) / 180;
+  // Arriba es -Y (CAMERA.UP).
+  const dir: [number, number, number] = [Math.cos(el) * Math.sin(az), -Math.sin(el), Math.cos(el) * Math.cos(az)];
+  const t = framing.target;
+  const position: [number, number, number] = [t[0] + dir[0] * distance, t[1] + dir[1] * distance, t[2] + dir[2] * distance];
+  // La entrada parte de lejos en la misma proporción que el encuadre por defecto.
+  const startDistance = distance * (INTRO.START_DISTANCE / INTRO.END_DISTANCE);
+  return { position, target: t, distance, startDistance, initialDistance: distance };
+}
+
+/** Encuadre de una pose de cámara: órbita (objetivo + ángulos) o primera persona (ojo + objetivo). */
+export function framingFromPose(position: [number, number, number], target: [number, number, number], firstPerson: boolean): CameraFraming {
+  const r = (v: number, k = 1e4) => Math.round(v * k) / k;
+  const t: [number, number, number] = [r(target[0]), r(target[1]), r(target[2])];
+  if (firstPerson) return { target: t, eye: [r(position[0]), r(position[1]), r(position[2])] };
+  const d = [position[0] - target[0], position[1] - target[1], position[2] - target[2]];
+  const distance = Math.hypot(d[0], d[1], d[2]) || 1;
+  // Arriba es -Y: la elevación es el ángulo de la dirección (objetivo → cámara) sobre el horizonte.
+  const elevation = (Math.asin(Math.max(-1, Math.min(1, -d[1] / distance))) * 180) / Math.PI;
+  const azimuth = (Math.atan2(d[0], d[2]) * 180) / Math.PI;
+  return { target: t, distance: r(distance), elevation: r(elevation, 10), azimuth: r(azimuth, 10) };
+}
 
 export const VIEW_DIRECTIONS: Record<Exclude<CameraView, 'reset'>, [number, number, number]> = {
   front: [0, 0, 1],

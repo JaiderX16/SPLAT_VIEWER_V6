@@ -4,12 +4,18 @@ import {
   CAMERA,
   INTRO,
   VIEW_DIRECTIONS,
+  framingFromPose,
+  framingPose,
   isAbortError,
   resolveFormat,
+  type CameraFraming,
   type SceneLoadOptions,
   type SplatViewerHandle,
   type SplatViewerProps,
 } from '@/lib/viewerHandle';
+
+/** Por canvas: promesa que se cumple cuando su último renderer terminó de crearse (o de descartarse). */
+const canvasesOcupados = new WeakMap<HTMLCanvasElement, Promise<void>>();
 
 interface WebGPUSplatViewerProps extends SplatViewerProps {
   /** Called when WebGPU cannot start, so the host can fall back to WebGL. */
@@ -26,6 +32,8 @@ const WebGPUSplatViewer = forwardRef<SplatViewerHandle, WebGPUSplatViewerProps>(
     const rendererRef = useRef<SplatRenderer | null>(null);
     const readyRef = useRef<Promise<SplatRenderer> | null>(null);
     const hasSceneRef = useRef(false);
+    /** Encuadre de la escena cargada: la entrada y «restablecer cámara» vuelven a él. */
+    const framingRef = useRef<CameraFraming | null>(null);
     const callbacks = useRef({ onProgress, onLoadStart, onLoadComplete, onError, onUnsupported });
     // Latest look, read when the renderer finishes initializing.
     const lookRef = useRef({ background, theme });
@@ -42,7 +50,13 @@ const WebGPUSplatViewer = forwardRef<SplatViewerHandle, WebGPUSplatViewerProps>(
       if (!canvas) return;
       let disposed = false;
 
-      const ready = SplatRenderer.create(canvas, {
+      // Un renderer anterior sobre este canvas (React lo monta dos veces en desarrollo, o un remontaje
+      // rápido) se descarta al terminar de crearse y desconfigura el contexto WebGPU del canvas: el nuevo
+      // espera a que ese termine para no quedarse con un contexto muerto.
+      const anterior = canvasesOcupados.get(canvas) ?? Promise.resolve();
+      const ready = anterior.then(() => {
+        if (disposed) throw new DOMException('unmounted', 'AbortError');
+        return SplatRenderer.create(canvas, {
         up: CAMERA.UP,
         limits: {
           minDistance: CAMERA.MIN_DISTANCE,
@@ -58,6 +72,7 @@ const WebGPUSplatViewer = forwardRef<SplatViewerHandle, WebGPUSplatViewerProps>(
           setMarkers((m) => [...m.slice(-3), { id, x, y, kind }]);
           window.setTimeout(() => setMarkers((m) => m.filter((marker) => marker.id !== id)), 700);
         },
+      });
       }).then(async (renderer) => {
         if (disposed) {
           renderer.dispose();
@@ -68,12 +83,15 @@ const WebGPUSplatViewer = forwardRef<SplatViewerHandle, WebGPUSplatViewerProps>(
         renderer.setTheme(lookRef.current.theme);
         await renderer.start();
         rendererRef.current = renderer;
+        // Solo en desarrollo: para inspeccionar la cámara desde la consola (encuadres por modelo).
+        if (import.meta.env.DEV) (window as unknown as { __splat?: SplatRenderer }).__splat = renderer;
         return renderer;
       });
       ready.catch((error: unknown) => {
         if (isAbortError(error)) return;
         callbacks.current.onUnsupported?.(error instanceof Error ? error : new Error(String(error)));
       });
+      canvasesOcupados.set(canvas, ready.then(() => undefined, () => undefined));
       readyRef.current = ready;
 
       return () => {
@@ -108,22 +126,34 @@ const WebGPUSplatViewer = forwardRef<SplatViewerHandle, WebGPUSplatViewerProps>(
 
         callbacks.current.onLoadStart?.();
         hasSceneRef.current = true;
+        framingRef.current = options.framing ?? null;
+        const pose = framingPose(framingRef.current);
         try {
           await renderer.load(path, {
             alphaThreshold: options.splatAlphaRemovalThreshold ?? 1,
             transform: { position: options.position, rotation: options.rotation, scale: options.scale },
             onProgress: (percent, label, status) => callbacks.current.onProgress?.(percent, label, status),
             // Start the cinematic entrance as soon as the first splats stream in.
-            onFirstSplats: () =>
+            // Exterior con encuadre: gira y se acerca hasta posarse justo en el encuadre guardado; luego
+            // sigue girando despacio desde ahí.
+            // Interior con encuadre: sin vuelo ni giro, ya desde donde se quedará la cámara.
+            // Sin encuadre: la entrada de siempre, que sigue girando despacio.
+            onFirstSplats: () => {
+              const f = framingRef.current;
+              if (f && !f.eye) {
+                renderer.playFramedIntro(pose.position, pose.target, pose.startDistance, INTRO.DURATION_MS, Math.max(0, f.speed ?? INTRO.SPEED_SLOW));
+                return;
+              }
               renderer.playIntro(
-                CAMERA.INITIAL_POSITION,
-                CAMERA.LOOK_AT,
-                INTRO.START_DISTANCE,
-                INTRO.END_DISTANCE,
+                pose.position,
+                pose.target,
+                pose.startDistance,
+                pose.distance,
                 INTRO.DURATION_MS,
-                INTRO.SPEED_INTRO,
-                INTRO.SPEED_SLOW,
-              ),
+                f?.eye ? 0 : INTRO.SPEED_INTRO,
+                f?.eye ? 0 : INTRO.SPEED_SLOW,
+              );
+            },
           });
           callbacks.current.onLoadComplete?.();
         } catch (e) {
@@ -170,10 +200,11 @@ const WebGPUSplatViewer = forwardRef<SplatViewerHandle, WebGPUSplatViewerProps>(
       resetCamera: () => {
         const controls = rendererRef.current?.controls;
         if (!controls) return;
-        const p = CAMERA.INITIAL_POSITION;
+        const pose = framingPose(framingRef.current);
+        const d = [pose.position[0] - pose.target[0], pose.position[1] - pose.target[1], pose.position[2] - pose.target[2]] as [number, number, number];
         controls.cancelFly();
-        controls.focus(CAMERA.LOOK_AT);
-        controls.lookFrom(p, Math.hypot(p[0], p[1], p[2]));
+        controls.focus(pose.target);
+        controls.lookFrom(d, pose.initialDistance);
       },
       setOrthographicMode: (enabled) => rendererRef.current?.setOrthographic(enabled),
       getOrthographicMode: () => rendererRef.current?.getOrthographic() ?? false,
@@ -188,15 +219,21 @@ const WebGPUSplatViewer = forwardRef<SplatViewerHandle, WebGPUSplatViewerProps>(
         controls.autoRotate = false;
         controls.cancelFly();
         if (view === 'reset') {
-          const p = CAMERA.INITIAL_POSITION;
-          controls.focus(CAMERA.LOOK_AT);
-          controls.lookFrom(p, Math.hypot(p[0], p[1], p[2]));
+          const pose = framingPose(framingRef.current);
+          controls.focus(pose.target);
+          controls.lookFrom([pose.position[0] - pose.target[0], pose.position[1] - pose.target[1], pose.position[2] - pose.target[2]], pose.initialDistance);
           return;
         }
         controls.lookFrom(VIEW_DIRECTIONS[view], Math.max(controls.distance, 2.5));
       },
       setEditorViewVisible: (visible) => rendererRef.current?.setEditorViewVisible(visible),
       setNavigation: (settings) => rendererRef.current?.setNavigation(settings),
+      getCameraFraming: () => {
+        const c = rendererRef.current?.controls;
+        return c ? framingFromPose(c.getPosition(), c.getTarget(), c.mode !== 'orbit') : null;
+      },
+      standAt: (eye, target) => rendererRef.current?.standAt(eye, target),
+      setSpinSpeed: (rpm) => rendererRef.current?.setSpinSpeed(rpm),
     }), []);
 
     return (

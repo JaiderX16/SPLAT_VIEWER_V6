@@ -1,6 +1,6 @@
 {
   "name": "@memoria-labs/splat-viewer",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "MemorIA Gaussian splat viewer (WebGPU) as a React component.",
   "type": "module",
   "files": [
@@ -20,6 +20,7 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "build:lib": "vite build --mode lib",
+    "dev:lib": "vite build --mode lib --watch",
     "prepack": "npm run build:lib"
   },
   "peerDependencies": {

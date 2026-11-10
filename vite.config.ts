@@ -30,7 +30,7 @@ export default defineConfig(({ mode }) => {
     format: 'es',
   },
   server: {
-    port: 3000,
+    port: 5182,
     headers: crossOriginIsolationHeaders,
   },
   preview: {
