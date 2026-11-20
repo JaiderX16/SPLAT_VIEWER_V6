@@ -31,6 +31,7 @@ export default defineConfig(({ mode }) => {
   },
   server: {
     port: 5182,
+    allowedHosts: ['desktop-feocakm.tailb5cc9a.ts.net'],
     headers: crossOriginIsolationHeaders,
   },
   preview: {

@@ -158,6 +158,35 @@
     border-radius: var(--ui-dock-radius);
   }
 
+  .viewer-tools__panel {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    max-height: 0;
+    overflow: hidden;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition:
+      max-height 280ms cubic-bezier(0.2, 0.8, 0.2, 1),
+      opacity 180ms ease,
+      visibility 0s linear 280ms;
+  }
+  .viewer-tools__panel--open {
+    max-height: 600px;
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transition-delay: 0s;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .viewer-tools__panel {
+      transition: none;
+    }
+  }
+
   .pill-btn {
     display: inline-flex;
     align-items: center;
