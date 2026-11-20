@@ -117,6 +117,8 @@ export interface SplatViewerHandle {
   standAt?: (eye: [number, number, number], target: [number, number, number]) => void;
   /** Giro automático en órbita a `rpm` vueltas por minuto (0 lo para). */
   setSpinSpeed?: (rpm: number) => void;
+  /** Entra o sale de una sesión WebXR inmersiva, cuando el backend lo admite. */
+  toggleVR?: () => Promise<void>;
 }
 
 export interface SplatViewerProps {

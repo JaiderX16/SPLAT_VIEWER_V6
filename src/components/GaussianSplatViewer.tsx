@@ -131,6 +131,8 @@ interface GaussianSplatViewerProps extends SplatViewerProps {
   initialCameraLookAt?: [number, number, number];
   logLevel?: GaussianSplats3D.LogLevel;
   sphericalHarmonicsDegree?: number;
+  enableVR?: boolean;
+  onVRSessionChange?: (active: boolean) => void;
 }
 
 const GaussianSplatViewer = forwardRef<SplatViewerHandle, GaussianSplatViewerProps>(
@@ -146,6 +148,8 @@ const GaussianSplatViewer = forwardRef<SplatViewerHandle, GaussianSplatViewerPro
     initialCameraLookAt = CAMERA.LOOK_AT,
     logLevel = GaussianSplats3D.LogLevel.None,
     sphericalHarmonicsDegree = 0,
+    enableVR = false,
+    onVRSessionChange,
   }, ref) => {
     const containerRef = useRef<HTMLDivElement>(null);
     const viewerRef = useRef<GaussianSplats3D.Viewer | null>(null);
@@ -157,6 +161,7 @@ const GaussianSplatViewer = forwardRef<SplatViewerHandle, GaussianSplatViewerPro
     const onLoadStartRef = useRef(onLoadStart);
     const onLoadCompleteRef = useRef(onLoadComplete);
     const onErrorRef = useRef(onError);
+    const onVRSessionChangeRef = useRef(onVRSessionChange);
     const introRafRef = useRef<number | null>(null);
 
     const initPropsRef = useRef({
@@ -165,6 +170,7 @@ const GaussianSplatViewer = forwardRef<SplatViewerHandle, GaussianSplatViewerPro
       initialCameraLookAt,
       logLevel,
       sphericalHarmonicsDegree,
+      enableVR,
     });
 
     useEffect(() => {
@@ -172,7 +178,8 @@ const GaussianSplatViewer = forwardRef<SplatViewerHandle, GaussianSplatViewerPro
       onLoadStartRef.current = onLoadStart;
       onLoadCompleteRef.current = onLoadComplete;
       onErrorRef.current = onError;
-    }, [onProgress, onLoadStart, onLoadComplete, onError]);
+      onVRSessionChangeRef.current = onVRSessionChange;
+    }, [onProgress, onLoadStart, onLoadComplete, onError, onVRSessionChange]);
 
     useEffect(() => {
       if (!containerRef.current) return;
@@ -194,6 +201,7 @@ const GaussianSplatViewer = forwardRef<SplatViewerHandle, GaussianSplatViewerPro
         antialiased: false,
         splatRenderMode: GaussianSplats3D.SplatRenderMode.ThreeD,
         renderMode: GaussianSplats3D.RenderMode.Always,
+        webXRMode: initProps.enableVR ? GaussianSplats3D.WebXRMode.VR : GaussianSplats3D.WebXRMode.None,
         logLevel: initProps.logLevel,
         sphericalHarmonicsDegree: initProps.sphericalHarmonicsDegree,
         enableOptionalEffects: false,
@@ -202,6 +210,11 @@ const GaussianSplatViewer = forwardRef<SplatViewerHandle, GaussianSplatViewerPro
       });
 
       viewerRef.current = viewer;
+      const xrRenderer = (viewer as unknown as ViewerInternalLike).renderer;
+      const onVRSessionStart = () => onVRSessionChangeRef.current?.(true);
+      const onVRSessionEnd = () => onVRSessionChangeRef.current?.(false);
+      xrRenderer?.xr.addEventListener('sessionstart', onVRSessionStart);
+      xrRenderer?.xr.addEventListener('sessionend', onVRSessionEnd);
 
       // ── Controls configuration (replicado exactamente) ─────────────────────
       const internalControls = (viewer as unknown as ViewerInternalLike).controls;
@@ -263,6 +276,8 @@ const GaussianSplatViewer = forwardRef<SplatViewerHandle, GaussianSplatViewerPro
         axesHelperRef.current = null;
         editorOverlayRef.current?.dispose();
         editorOverlayRef.current = null;
+        xrRenderer?.xr.removeEventListener('sessionstart', onVRSessionStart);
+        xrRenderer?.xr.removeEventListener('sessionend', onVRSessionEnd);
         // dispose() is async – its .finally() may try removeChild on a node
         // that React already unmounted (StrictMode double-invoke).
         viewer.dispose().catch(() => {});
@@ -324,6 +339,31 @@ const GaussianSplatViewer = forwardRef<SplatViewerHandle, GaussianSplatViewerPro
 
     useImperativeHandle(ref, () => ({
       backend: 'webgl' as const,
+      toggleVR: async () => {
+        if (!initPropsRef.current.enableVR) {
+          throw new Error('WebXR no está disponible en este navegador.');
+        }
+        const viewer = viewerRef.current;
+        const renderer = viewer ? (viewer as unknown as ViewerInternalLike).renderer : null;
+        if (!renderer) throw new Error('El renderizador VR todavía no está listo.');
+
+        const currentSession = renderer.xr.getSession();
+        if (currentSession) {
+          await currentSession.end();
+          return;
+        }
+        if (!navigator.xr) throw new Error('WebXR no está disponible en este navegador.');
+
+        const session = await navigator.xr.requestSession('immersive-vr', {
+          optionalFeatures: ['local-floor', 'bounded-floor', 'layers'],
+        });
+        try {
+          await renderer.xr.setSession(session);
+        } catch (error) {
+          await session.end();
+          throw error;
+        }
+      },
       supportsSphericalHarmonics: true,
       supportsLod: false,
       setLodQuality: () => {},

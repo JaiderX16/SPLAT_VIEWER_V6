@@ -150,6 +150,10 @@
     background: var(--glass-bg-strong);
   }
 
+  .msv #VRButton {
+    display: none !important;
+  }
+
   /* Vertical / horizontal pill container holding .pill-btn children. */
   .dock {
     display: flex;

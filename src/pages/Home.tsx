@@ -46,6 +46,7 @@ import {
   Minimize,
   Menu,
   X,
+  Glasses,
 } from 'lucide-react';
 
 // The WebGL fallback (three.js + GaussianSplats3D, ~1 MB) is only downloaded
@@ -150,6 +151,16 @@ const hasWebGL2 = (() => {
   return () => (cached ??= Boolean(document.createElement('canvas').getContext('webgl2')));
 })();
 
+async function isImmersiveVRAvailable(): Promise<boolean> {
+  if (!navigator.xr) return false;
+  try {
+    return await navigator.xr.isSessionSupported('immersive-vr');
+  } catch (error) {
+    console.warn('No se pudo comprobar la compatibilidad con WebXR.', error);
+    return false;
+  }
+}
+
 const fmt3 = (v: [number, number, number] | null) => (v ? v.map((n) => n.toFixed(2)).join(', ') : 'N/A');
 
 /** `?renderer=webgl` forces the fallback (handy for A/B benchmarking). */
@@ -192,6 +203,7 @@ const Home = forwardRef<SplatViewerRef, SplatViewerProps>(function Home({ showUI
   const viewerWaitersRef = useRef<Array<{ backend: RenderBackend; resolve: (h: SplatViewerHandle) => void }>>([]);
   const activeObjectUrlRef = useRef<string | null>(null);
   const webgpuAvailableRef = useRef(false);
+  const vrSupportedRef = useRef(false);
 
   const [backend, setBackend] = useState<BackendState>('detecting');
   const [progressiveState, setProgressiveState] = useState<ProgressiveLoadState>({
@@ -230,6 +242,9 @@ const Home = forwardRef<SplatViewerRef, SplatViewerProps>(function Home({ showUI
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isFallbackFullscreen, setIsFallbackFullscreen] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
+  const [vrSupported, setVrSupported] = useState(false);
+  const [isVRActive, setIsVRActive] = useState(false);
+  const [vrError, setVrError] = useState<string | null>(null);
 
   const isMobile = useIsMobile();
   const { theme, toggleTheme } = useTheme();
@@ -283,15 +298,34 @@ const Home = forwardRef<SplatViewerRef, SplatViewerProps>(function Home({ showUI
   // ─── Backend selection ─────────────────────────────────────────────────────
   useEffect(() => {
     let cancelled = false;
-    void isWebGPUAvailable().then((available) => {
+    void Promise.all([isWebGPUAvailable(), isImmersiveVRAvailable()]).then(([available, immersiveVR]) => {
       if (cancelled) return;
       webgpuAvailableRef.current = available;
       const forced = forcedBackend();
-      setBackend(forced === 'webgl' || !available ? 'webgl' : 'webgpu');
+      const canUseVR = forced !== 'webgpu' && immersiveVR;
+      vrSupportedRef.current = canUseVR;
+      setVrSupported(canUseVR);
+      setBackend(forced === 'webgl' || canUseVR || !available ? 'webgl' : 'webgpu');
     });
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  const handleVRSessionChange = useCallback((active: boolean) => {
+    setIsVRActive(active);
+    if (active) setVrError(null);
+  }, []);
+
+  const handleToggleVR = useCallback(async () => {
+    try {
+      await viewerRef.current?.toggleVR?.();
+      setVrError(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error('No se pudo cambiar el modo VR.', error);
+      setVrError(message);
+    }
   }, []);
 
   /** Callback ref: resolves anyone waiting for a viewer of a given backend. */
@@ -443,6 +477,7 @@ const Home = forwardRef<SplatViewerRef, SplatViewerProps>(function Home({ showUI
     const format = resolveFormat(options?.format, nameHint);
     const wanted: RenderBackend =
       webgpuAvailableRef.current && forcedBackend() !== 'webgl' && (format === 'splat' || format === 'auto')
+        && !vrSupportedRef.current
         ? 'webgpu'
         : 'webgl';
 
@@ -651,7 +686,12 @@ const Home = forwardRef<SplatViewerRef, SplatViewerProps>(function Home({ showUI
         )}
         {backend === 'webgl' && (
           <Suspense fallback={null}>
-            <GaussianSplatViewer ref={attachViewer} {...viewerProps} />
+            <GaussianSplatViewer
+              ref={attachViewer}
+              {...viewerProps}
+              enableVR={vrSupported}
+              onVRSessionChange={handleVRSessionChange}
+            />
           </Suspense>
         )}
 
@@ -710,6 +750,17 @@ const Home = forwardRef<SplatViewerRef, SplatViewerProps>(function Home({ showUI
             >
               {isFullscreen || isFallbackFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
             </button>
+            {vrSupported && hasScene && (
+              <button
+                className="pill-btn"
+                onClick={() => void handleToggleVR()}
+                title={isVRActive ? 'Salir del modo VR' : 'Entrar en modo VR'}
+                aria-label={isVRActive ? 'Salir del modo VR' : 'Entrar en modo VR'}
+                aria-pressed={isVRActive}
+              >
+                <Glasses className="w-4 h-4" />
+              </button>
+            )}
             <button className="pill-btn" onClick={handleResetCamera} title="Enfocar escena (0)" aria-label="Enfocar escena">
               <Crosshair className="w-4 h-4" />
             </button>
@@ -810,6 +861,14 @@ const Home = forwardRef<SplatViewerRef, SplatViewerProps>(function Home({ showUI
             )}
             </div>
           </nav>
+          {vrError && (
+            <div
+              role="alert"
+              className="absolute bottom-4 left-4 right-20 z-[25000] glass rounded-xl px-4 py-3 text-xs text-neutral-900 dark:text-white"
+            >
+              {vrError}
+            </div>
+          )}
 
           {/* ── Editor view frame: matches the GPU picture-in-picture rect (30%, min 120px, 12px margin) ── */}
           {editorView && (
