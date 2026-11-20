@@ -2,6 +2,7 @@ import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 're
 import { SplatRenderer } from '@/lib/webgpu-splat/SplatRenderer';
 import {
   CAMERA,
+  DEFAULT_ALPHA_THRESHOLD,
   INTRO,
   VIEW_DIRECTIONS,
   framingFromPose,
@@ -114,6 +115,10 @@ const WebGPUSplatViewer = forwardRef<SplatViewerHandle, WebGPUSplatViewerProps>(
       supportsSphericalHarmonics: false,
       supportsLod: true,
       setLodQuality: (quality) => rendererRef.current?.setLodQuality(quality),
+      setHideUnseen: (enabled) => rendererRef.current?.setHideUnseen(enabled),
+      setSplatBudget: (budget) => rendererRef.current?.setSplatBudget(budget),
+      getSplatBudget: () => rendererRef.current?.getSplatBudget() ?? 0,
+      getHideUnseen: () => rendererRef.current?.getHideUnseen() ?? true,
       getLodQuality: () => rendererRef.current?.getLodQuality() ?? 'balanced',
       addSplatScene: async (path: string, options: SceneLoadOptions = {}) => {
         const ready = readyRef.current;
@@ -130,7 +135,7 @@ const WebGPUSplatViewer = forwardRef<SplatViewerHandle, WebGPUSplatViewerProps>(
         const pose = framingPose(framingRef.current);
         try {
           await renderer.load(path, {
-            alphaThreshold: options.splatAlphaRemovalThreshold ?? 1,
+            alphaThreshold: options.splatAlphaRemovalThreshold ?? DEFAULT_ALPHA_THRESHOLD,
             transform: { position: options.position, rotation: options.rotation, scale: options.scale },
             onProgress: (percent, label, status) => callbacks.current.onProgress?.(percent, label, status),
             // Start the cinematic entrance as soon as the first splats stream in.
@@ -178,6 +183,8 @@ const WebGPUSplatViewer = forwardRef<SplatViewerHandle, WebGPUSplatViewerProps>(
           splatCount: s.splatCount,
           renderCount: s.visibleCount,
           lodCulled: s.lodCulled,
+          offscreenCulled: renderer.getHideUnseen() ? s.offscreen : null,
+          gpuMs: s.gpuMs,
           fps: s.fps,
           sortTimeMs: s.sortMs,
           drawCalls: s.drawCalls,

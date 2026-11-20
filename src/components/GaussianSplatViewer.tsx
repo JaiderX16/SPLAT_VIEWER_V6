@@ -4,6 +4,7 @@ import * as GaussianSplats3D from '@mkkellogg/gaussian-splats-3d';
 import { EditorOverlay, type OverlayViewerHost } from '@/lib/editorOverlay';
 import {
   CAMERA,
+  DEFAULT_ALPHA_THRESHOLD,
   INTRO,
   VIEW_DIRECTIONS,
   isAbortError,
@@ -108,6 +109,8 @@ function readStats(viewer: GaussianSplats3D.Viewer): ViewerStats | null {
     splatCount: mesh.getSplatCount?.() || 0,
     renderCount: raw.splatRenderCount || 0,
     lodCulled: 0,
+    offscreenCulled: null,
+    gpuMs: null,
     fps: typeof raw.currentFPS === 'number' ? raw.currentFPS : null,
     sortTimeMs: typeof raw.lastSortTime === 'number' ? raw.lastSortTime : 0,
     drawCalls: typeof calls === 'number' ? calls : null,
@@ -376,7 +379,7 @@ const GaussianSplatViewer = forwardRef<SplatViewerHandle, GaussianSplatViewerPro
 
         try {
           const loadOptions = {
-            splatAlphaRemovalThreshold: options.splatAlphaRemovalThreshold ?? 1,
+            splatAlphaRemovalThreshold: options.splatAlphaRemovalThreshold ?? DEFAULT_ALPHA_THRESHOLD,
             position: options.position,
             rotation: options.rotation,
             scale: options.scale,

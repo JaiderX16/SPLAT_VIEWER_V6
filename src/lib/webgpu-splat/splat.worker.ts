@@ -24,13 +24,15 @@ import {
   type WorkerToMain,
 } from './protocol';
 import { buildVoxelGrid, SURFACE_ALPHA } from './collision';
+import { footprintReaches, frustumTest, LOOSE_MARGIN, type FrustumParams } from './frustum';
+import { budgetThreshold, hash01, PX_BIN_OFFSET, PX_BINS } from './budget';
 
 const ctx = self as unknown as DedicatedWorkerGlobalScope;
 
 /** Parse/flush granularity: ~32k splats per GPU upload. */
 const FLUSH_BYTES = SPLAT_FILE_RECORD_BYTES * 32768;
-/** Clip-space margin for culling, so large splats centred just off-screen still draw. */
-const CULL_MARGIN = 1.4;
+/** Loose clip-space margin (hide-unseen off): keeps large splats centred just off-screen. */
+const CULL_MARGIN = 1 + LOOSE_MARGIN;
 const SORT_BUCKETS = 65536;
 /** Must match the vertex shader's near cull. */
 const NEAR_CULL = 0.05;
@@ -49,7 +51,7 @@ let radii = new Float32Array(0);
 let splatCount = 0;
 
 let order: Uint32Array | null = new Uint32Array(0);
-let pendingSort: { viewProj: Float32Array; view: Float32Array; lod: LodParams } | null = null;
+let pendingSort: { viewProj: Float32Array; view: Float32Array; lod: LodParams; frustum: FrustumParams | null } | null = null;
 let depthScratch = new Float32Array(0);
 let indexScratch = new Uint32Array(0);
 let keyScratch = new Uint16Array(0);
@@ -302,6 +304,12 @@ async function load(url: string, alphaThreshold: number, transform: SceneTransfo
 
   if (token !== loadToken) return;
   if (splatCount === 0) throw new Error('El archivo no contiene splats válidos (.splat)');
+  // Arrays were sized from the file before faint splats were dropped: trim them to what loaded.
+  if (positions.length > splatCount * 3 * 1.1) {
+    positions = positions.slice(0, splatCount * 3);
+    alphas = alphas.slice(0, splatCount);
+    radii = radii.slice(0, splatCount);
+  }
   // Before 'done': the main thread only accepts a grid while its load is still pending.
   const grid = buildVoxelGrid(positions, alphas, splatCount);
   if (grid) post({ type: 'grid', grid }, [grid.bits.buffer]);
@@ -310,20 +318,19 @@ async function load(url: string, alphaThreshold: number, transform: SceneTransfo
 }
 
 // ─── Sorting ──────────────────────────────────────────────────────────────────
-/** Stable per-splat random number in [0, 1) (murmur3 finalizer). */
-function hash01(i: number) {
-  let h = Math.imul(i ^ 0x9e3779b9, 0x85ebca6b);
-  h ^= h >>> 13;
-  h = Math.imul(h, 0xc2b2ae35);
-  h ^= h >>> 16;
-  return (h >>> 0) / 4294967296;
-}
+/** Candidate sizes in screen px for the splat budget (binning inlined in `sort`, see budget.ts). */
+const pxHistogram = new Uint32Array(PX_BINS);
+const pxFloat = new Float32Array(1);
+const pxBits = new Int32Array(pxFloat.buffer);
 
-function sort(viewProj: Float32Array, view: Float32Array, lod: LodParams) {
+/** `frustum`: tight culling (only splats that can reach the screen); null keeps the loose margin. */
+function sort(viewProj: Float32Array, view: Float32Array, lod: LodParams, frustum: FrustumParams | null) {
   const start = performance.now();
   const n = splatCount;
-  if (!order || order.length < n) order = new Uint32Array(Math.max(n, positions.length / 3));
-  if (depthScratch.length < n) {
+  // Sized to the position arrays' capacity (no regrowth while streaming); shrinks once they are trimmed.
+  const capacity = Math.max(n, positions.length / 3);
+  if (!order || order.length < n || order.length > capacity * 1.25) order = new Uint32Array(capacity);
+  if (depthScratch.length !== order.length) {
     depthScratch = new Float32Array(order.length);
     indexScratch = new Uint32Array(order.length);
     keyScratch = new Uint16Array(order.length);
@@ -334,9 +341,18 @@ function sort(viewProj: Float32Array, view: Float32Array, lod: LodParams) {
   const dz0 = view[2], dz1 = view[6], dz2 = view[10], dz3 = view[14];
   let visible = 0;
   let lodCulled = 0;
+  /** Splats the loose margin would keep that cannot reach the screen. */
+  let offscreen = 0;
+  const test = frustum && frustumTest(frustum);
+  // reachesScreen's constants as locals: its fast path is inlined below.
+  const tTravel = test ? test.travel : 0, tInner = test ? test.inner : 0, tCap = test ? test.cap : 0;
+  const tSlideX = test ? test.slideX : 0, tSlideY = test ? test.slideY : 0;
   const packed = n <= LOD_MAX_PACKED_SPLATS;
-  const lodOn = packed && lod.minPx > 0;
-  const lodScaleToByte = 255 / (LOD_MAX_SCALE - 1);
+  const budget = packed ? lod.budget : 0;
+  // Thinning needs the LOD scale bits of packed order entries.
+  const thin = packed && (lod.minPx > 0 || budget > 0);
+  if (thin) pxHistogram.fill(0);
+  let candidates = 0;
   let minDepth = Infinity;
   let maxDepth = -Infinity;
 
@@ -348,17 +364,47 @@ function sort(viewProj: Float32Array, view: Float32Array, lod: LodParams) {
     if (cw <= 1e-4) continue;
     const lim = cw * CULL_MARGIN;
     const cx = vp[0] * x + vp[4] * y + vp[8] * z + vp[12];
-    if (cx < -lim || cx > lim) continue;
     const cy = vp[1] * x + vp[5] * y + vp[9] * z + vp[13];
-    if (cy < -lim || cy > lim) continue;
+    const loose = cx >= -lim && cx <= lim && cy >= -lim && cy <= lim;
+    // Depth buckets span the loose set either way, so hiding unseen splats never reorders the rest.
+    if (loose) {
+      if (d < minDepth) minDepth = d;
+      if (d > maxDepth) maxDepth = d;
+    }
+    if (test) {
+      // reachesScreen (frustum.ts) inlined: a function call per splat costs ~25 % more sort time.
+      const kx = (cx < 0 ? -cx : cx) * (cw - tTravel), ky = (cy < 0 ? -cy : cy) * (cw - tTravel);
+      const inX = cw * (cw * tInner + tSlideX), inY = cw * (cw * tInner + tSlideY);
+      if ((kx > inX || ky > inY) && (kx > cw * (cw * tCap + tSlideX) || ky > cw * (cw * tCap + tSlideY) || !footprintReaches(cx, cy, cw, kx, ky, inX, inY, radii[i], test))) {
+        if (loose) offscreen++;
+        continue;
+      }
+    } else if (!loose) {
+      continue;
+    }
 
-    // Distance LOD: thin splats that cover only a pixel or two. The hash makes
-    // the choice stable, so approaching a region only ever adds splats.
+    depthScratch[candidates] = d;
+    indexScratch[candidates] = i;
+    candidates++;
+    if (thin) {
+      pxFloat[0] = (radii[i] * lod.focalPx) / (lod.ortho ? 1 : -d);
+      pxHistogram[Math.min(PX_BINS - 1, Math.max(0, (pxBits[0] >> 21) - PX_BIN_OFFSET))]++;
+    }
+  }
+
+  // Distance LOD: thin splats smaller than `threshold` px, keeping each with probability px / threshold
+  // and growing the survivors so the covered area stays the same. The quality preset sets the floor;
+  // a splat budget raises it until the expected count fits. The hash makes the choice stable, so
+  // approaching a region only ever adds splats.
+  const { threshold, minKeep } = thin ? budgetThreshold(pxHistogram, candidates, lod.minPx, lod.minKeep, budget) : { threshold: 0, minKeep: 1 };
+  const lodScaleToByte = 255 / (LOD_MAX_SCALE - 1);
+  for (let c = 0; c < candidates; c++) {
+    const i = indexScratch[c], d = depthScratch[c];
     let lodByte = 0;
-    if (lodOn) {
+    if (threshold > 0) {
       const px = (radii[i] * lod.focalPx) / (lod.ortho ? 1 : -d);
-      if (px < lod.minPx) {
-        const keep = Math.max(lod.minKeep, px / lod.minPx);
+      if (px < threshold) {
+        const keep = Math.max(minKeep, px / threshold);
         if (hash01(i) >= keep) {
           lodCulled++;
           continue;
@@ -367,11 +413,8 @@ function sort(viewProj: Float32Array, view: Float32Array, lod: LodParams) {
         lodByte = Math.round((grow - 1) * lodScaleToByte);
       }
     }
-
     depthScratch[visible] = d;
     indexScratch[visible] = packed ? (i | (lodByte << LOD_INDEX_BITS)) >>> 0 : i;
-    if (d < minDepth) minDepth = d;
-    if (d > maxDepth) maxDepth = d;
     visible++;
   }
 
@@ -380,7 +423,8 @@ function sort(viewProj: Float32Array, view: Float32Array, lod: LodParams) {
   const range = maxDepth - minDepth;
   const scale = range > 0 ? (SORT_BUCKETS - 1) / range : 0;
   for (let i = 0; i < visible; i++) {
-    const key = ((depthScratch[i] - minDepth) * scale) | 0;
+    // Clamped: a big splat kept from past the loose margin can lie outside the bucket range.
+    const key = Math.min(SORT_BUCKETS - 1, Math.max(0, ((depthScratch[i] - minDepth) * scale) | 0));
     keyScratch[i] = key;
     bucketCounts[key]++;
   }
@@ -396,14 +440,14 @@ function sort(viewProj: Float32Array, view: Float32Array, lod: LodParams) {
 
   const out = order;
   order = null; // lent to the main thread until it is recycled
-  post({ type: 'sorted', order: out, visible, sortMs: performance.now() - start, packed, lodCulled }, [out.buffer]);
+  post({ type: 'sorted', order: out, visible, sortMs: performance.now() - start, packed, lodCulled, offscreen }, [out.buffer]);
 }
 
 function runPendingSort() {
   if (!pendingSort || !order || splatCount === 0) return;
-  const { viewProj, view, lod } = pendingSort;
+  const { viewProj, view, lod, frustum } = pendingSort;
   pendingSort = null;
-  sort(viewProj, view, lod);
+  sort(viewProj, view, lod, frustum);
 }
 
 // ─── Picking ──────────────────────────────────────────────────────────────────
@@ -450,7 +494,7 @@ ctx.onmessage = (event: MessageEvent<MainToWorker>) => {
       pendingSort = null;
       break;
     case 'sort':
-      pendingSort = { viewProj: msg.viewProj, view: msg.view, lod: msg.lod };
+      pendingSort = { viewProj: msg.viewProj, view: msg.view, lod: msg.lod, frustum: msg.frustum };
       runPendingSort();
       break;
     case 'recycle':

@@ -1,11 +1,12 @@
-import { draw, frameLoop, initFromDevice, surface } from 'vgpu';
-import type { Draw, Frame, FrameLoopHandle, Gpu, Surface } from 'vgpu';
+import { draw, frameLoop, initFromDevice, surface, timer } from 'vgpu';
+import type { Draw, Frame, FrameLoopHandle, Gpu, Surface, TimerSpan } from 'vgpu';
 import splatShader from './splat.wgsl';
 import helpersShader from './helpers.wgsl';
 import { cameraRay, intersectPlane, lookAt, multiply, orthographic, perspective, vec3, type Ray, type Vec3 } from './math';
 import { EditorView, type PixelRect } from './EditorView';
 import { OrbitControls, type OrbitLimits } from './orbitControls';
 import { CollisionGrid } from './collision';
+import { LOOSE_MARGIN, type FrustumParams } from './frustum';
 import type { NavigationMode, NavigationSettings } from '../viewerHandle';
 import { LOD_MAX_SCALE, REVEAL_QUANTILE_STEPS, SPLAT_BYTES, type LodParams, type MainToWorker, type SceneTransform, type WorkerToMain } from './protocol';
 
@@ -44,7 +45,11 @@ export interface SplatRendererStats {
   visibleCount: number;
   /** Splats skipped by distance LOD in the last sort. */
   lodCulled: number;
+  /** Splats hidden because no part of them reaches the screen (hide-unseen on). */
+  offscreen: number;
   fps: number | null;
+  /** GPU time of the last timed splat pass, ms (null without timestamp queries). */
+  gpuMs: number | null;
   frameMs: number;
   sortMs: number;
   drawCalls: number;
@@ -99,6 +104,9 @@ const INTRO_SWEEP = Math.PI * 0.75;
 const TRAVEL_DISTANCE_FACTOR = 0.45;
 const TRAVEL_MS = 900;
 const MAP_TRAVEL_MS = 1100;
+/** Hide-unseen: screen fraction kept past each edge with a still camera, and how many sorts a list stays on screen. */
+const FRUSTUM_MIN_MARGIN = 0.05;
+const FRUSTUM_LAG = 2;
 /** Interior on a portrait screen: a 50° view is a tunnel, so it widens while in the mode. */
 const INTERIOR_PORTRAIT_FOV = 70;
 
@@ -171,11 +179,17 @@ export class SplatRenderer {
   private dataSinceSort = false;
   private lastSortMs = 0;
   private lodQuality: LodQuality = 'balanced';
+  /** Most splats drawn per view (0 = no limit); phones by default stay near what they can draw smoothly. */
+  private splatBudget: number;
   private lodPacked = false;
   /** Reveal timeline: starts with the first streamed splats; `loadedAt`/`splatsAt` once known. */
   private reveal: { start: number; quantiles: Float32Array; loadedAt: number | null; splatsAt: number | null } | null = null;
   private slowdown: { from: number; start: number } | null = null;
   private lodCulled = 0;
+  /** Hide splats the camera does not see: only those whose footprint can reach the screen are drawn. */
+  private hideUnseen = true;
+  private offscreen = 0;
+  private lastSortPose: { eye: Vec3; forward: Vec3; scale: number } | null = null;
   private forceSort = false;
   private readonly lastSortViewProj = new Float32Array(16);
 
@@ -189,6 +203,9 @@ export class SplatRenderer {
   private framesThisSecond = 0;
   private fpsWindowStart = performance.now();
   private fps: number | null = null;
+  /** GPU time of the splat pass (timestamp queries), when the device has them. */
+  private gpuSpan: TimerSpan | undefined;
+  private gpuMs: number | null = null;
   private frameMs = 0;
 
   private fovDeg: number;
@@ -216,6 +233,8 @@ export class SplatRenderer {
     // 256 MB buffer) cap scenes at ~4M splats.
     const device = await adapter.requestDevice({
       label: 'splat-viewer',
+      // Optional: GPU time of the splat pass for the benchmark panel.
+      requiredFeatures: adapter.features.has('timestamp-query') ? ['timestamp-query'] : [],
       requiredLimits: {
         maxStorageBufferBindingSize: adapter.limits.maxStorageBufferBindingSize,
         maxBufferSize: adapter.limits.maxBufferSize,
@@ -234,6 +253,7 @@ export class SplatRenderer {
     this.clearColor = hexToClear(options.background ?? '#000000');
 
     const coarsePointer = window.matchMedia?.('(pointer: coarse)').matches ?? false;
+    this.splatBudget = coarsePointer ? 100_000 : 1_000_000;
     // Splatting is fill-rate bound: cap DPR lower on phones/tablets.
     this.surf = surface(gpu, canvas, { dpr: [1, coarsePointer ? 1.5 : 2], alphaMode: 'opaque' });
     this.surf.onResize(() => {
@@ -291,6 +311,13 @@ export class SplatRenderer {
     this.worker.onmessage = (e: MessageEvent<WorkerToMain>) => this.onWorkerMessage(e.data);
     this.worker.onerror = (e) => this.failLoad(new Error(e.message || 'Error en el worker de splats'));
 
+    if (device.features.has('timestamp-query')) {
+      const gpuTimer = timer(gpu);
+      this.gpuSpan = gpuTimer.span('splats');
+      gpuTimer.onResults((spans) => {
+        if (spans.splats !== undefined) this.gpuMs = spans.splats;
+      });
+    }
     gpu.onError((error) => options.onError?.(error instanceof Error ? error : new Error(String(error))));
     void gpu.lost.then(() => options.onError?.(new Error('Se perdió el dispositivo WebGPU')));
   }
@@ -444,6 +471,28 @@ export class SplatRenderer {
     this.needsRender = true;
   }
 
+  /** Hide splats the camera does not see (tight frustum culling); off keeps the loose 40 % margin. */
+  setHideUnseen(enabled: boolean) {
+    this.hideUnseen = enabled;
+    this.forceSort = true;
+    this.needsRender = true;
+  }
+
+  getHideUnseen() {
+    return this.hideUnseen;
+  }
+
+  /** Most splats drawn per view (0 = no limit): smaller splats are thinned first, growing the rest. */
+  setSplatBudget(budget: number) {
+    this.splatBudget = Math.max(0, budget);
+    this.forceSort = true;
+    this.needsRender = true;
+  }
+
+  getSplatBudget() {
+    return this.splatBudget;
+  }
+
   getLodQuality() {
     return this.lodQuality;
   }
@@ -517,7 +566,9 @@ export class SplatRenderer {
       splatCount: this.loadedCount,
       visibleCount: this.visibleCount,
       lodCulled: this.lodCulled,
+      offscreen: this.offscreen,
       fps: this.fps,
+      gpuMs: this.gpuMs,
       frameMs: this.frameMs,
       sortMs: this.lastSortMs,
       drawCalls:
@@ -631,7 +682,7 @@ export class SplatRenderer {
     if (this.gridVisible) this.gridDraw.set({ helpers: helperParams });
     if (this.axesVisible) this.axesDraw.set({ helpers: helperParams });
 
-    frame.pass({ target: this.surf, clear: this.clearColor }, (pass) => {
+    frame.pass({ target: this.surf, clear: this.clearColor, timer: this.gpuSpan }, (pass) => {
       if (this.gridVisible) pass.draw(this.gridDraw);
       if (this.axesVisible) pass.draw(this.axesDraw);
       if (this.visibleCount > 0) pass.draw(this.splatDraw, { instances: this.visibleCount });
@@ -699,8 +750,31 @@ export class SplatRenderer {
       // Point-cloud dots have a fixed size, so thinning would only lose points.
       minPx: this.pointCloud ? 0 : preset.minPx,
       minKeep: preset.minKeep,
+      budget: this.splatBudget,
     };
-    this.post({ type: 'sort', viewProj: this.viewProj.slice(), view: this.view.slice(), lod });
+    this.post({ type: 'sort', viewProj: this.viewProj.slice(), view: this.view.slice(), lod, frustum: this.frustumParams() });
+  }
+
+  /**
+   * Hide-unseen culling margins from the camera motion since the previous sort: the list this sort
+   * returns stays on screen for about FRUSTUM_LAG sorts while the camera keeps moving.
+   */
+  private frustumParams(): FrustumParams | null {
+    const eye = this.controls.getPosition();
+    const forward = vec3.normalize(vec3.sub(this.controls.getTarget(), eye));
+    const last = this.lastSortPose;
+    this.lastSortPose = { eye, forward, scale: this.proj[5] };
+    // Orthographic turns move content by the orbit distance, not an angle: keep the loose margin there.
+    if (!this.hideUnseen || this.ortho) return null;
+    let margin = FRUSTUM_MIN_MARGIN;
+    let travel = 0;
+    if (last) {
+      // A turn shifts the image by tan(turn) / tan(fov/2) of the half screen (narrower axis); widening the FOV pulls content in.
+      const turn = Math.acos(Math.min(1, vec3.dot(forward, last.forward)));
+      margin += FRUSTUM_LAG * (Math.tan(Math.min(turn, 1)) * Math.max(this.proj[0], this.proj[5]) + Math.max(0, last.scale / this.proj[5] - 1));
+      travel = FRUSTUM_LAG * vec3.length(vec3.sub(eye, last.eye));
+    }
+    return { margin: Math.min(margin, LOOSE_MARGIN), travel, scaleX: this.proj[0], scaleY: this.proj[5] };
   }
 
   // ─── Worker / GPU memory ───────────────────────────────────────────────────
@@ -744,6 +818,7 @@ export class SplatRenderer {
       }
       case 'done': {
         this.loadedCount = msg.count;
+        this.shrinkToFit();
         this.dataSinceSort = true;
         if (this.reveal) this.reveal.loadedAt = performance.now();
         const pending = this.pendingLoad;
@@ -761,6 +836,7 @@ export class SplatRenderer {
           this.visibleCount = visible;
           this.lodPacked = msg.packed;
           this.lodCulled = msg.lodCulled;
+          this.offscreen = msg.offscreen;
           this.lastSortMs = msg.sortMs;
           this.needsRender = true;
         }
@@ -989,6 +1065,31 @@ export class SplatRenderer {
     this.splatDraw.set({ splats: this.splatBuffer });
     this.editor.bindBuffers(this.splatBuffer, this.orderBuffer);
     this.ensureOrderCapacity(next);
+  }
+
+  /**
+   * Buffers are sized from the file before faint splats are dropped while parsing: once loaded, trim
+   * them to what actually loaded (about a third less GPU memory at the default alpha threshold).
+   */
+  private shrinkToFit() {
+    const count = Math.max(1, this.loadedCount);
+    if (count >= this.capacity * 0.9) return;
+    const usage = GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC;
+    const splats = this.createBuffer('splats', count * SPLAT_BYTES, usage);
+    const order = this.createBuffer('order', count * 4, usage);
+    const encoder = this.device.createCommandEncoder({ label: 'trim-buffers' });
+    encoder.copyBufferToBuffer(this.splatBuffer, 0, splats, 0, count * SPLAT_BYTES);
+    const ordered = Math.min(this.visibleCount, count);
+    if (ordered > 0) encoder.copyBufferToBuffer(this.orderBuffer, 0, order, 0, ordered * 4);
+    this.device.queue.submit([encoder.finish()]);
+    this.splatBuffer.destroy(); // deferred by WebGPU until the copies have executed
+    this.orderBuffer.destroy();
+    this.splatBuffer = splats;
+    this.orderBuffer = order;
+    this.capacity = count;
+    this.visibleCount = ordered;
+    this.splatDraw.set({ splats: this.splatBuffer, order: this.orderBuffer });
+    this.editor.bindBuffers(this.splatBuffer, this.orderBuffer);
   }
 
   private ensureOrderCapacity(count: number) {

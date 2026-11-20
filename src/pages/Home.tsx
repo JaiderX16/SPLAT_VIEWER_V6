@@ -20,6 +20,7 @@ import {
   type ViewerStats,
   type CameraFraming,
   type LodQuality,
+  DEFAULT_ALPHA_THRESHOLD,
 } from '@/lib/viewerHandle';
 import Sidebar from '@/components/Sidebar';
 import SidebarMobileSheet, { type SheetState } from '@/components/SidebarMobileSheet';
@@ -394,6 +395,9 @@ const Home = forwardRef<SplatViewerRef, SplatViewerProps>(function Home({ showUI
       jsHeapMB: readJSHeapMB(),
       totalSplats: stats.splatCount,
       activeSplats,
+      offscreenCulled: stats.offscreenCulled,
+      lodCulled: stats.lodCulled,
+      gpuMs: stats.gpuMs,
       drawCalls: stats.drawCalls,
       sortTimeMs: stats.sortTimeMs,
       devicePixelRatio: window.devicePixelRatio || 1,
@@ -503,7 +507,7 @@ const Home = forwardRef<SplatViewerRef, SplatViewerProps>(function Home({ showUI
       if (lodQualityRef.current) viewer.setLodQuality(lodQualityRef.current);
       await viewer.addSplatScene(url, {
         framing: options?.framing,
-        splatAlphaRemovalThreshold: options?.splatAlphaRemovalThreshold ?? 1,
+        splatAlphaRemovalThreshold: options?.splatAlphaRemovalThreshold ?? DEFAULT_ALPHA_THRESHOLD,
         progressiveLoad: options?.progressiveLoad ?? true,
         position: options?.position,
         rotation: options?.rotation,
@@ -571,7 +575,7 @@ const Home = forwardRef<SplatViewerRef, SplatViewerProps>(function Home({ showUI
   useEffect(() => {
     if (!src || backend === 'detecting' || autoLoadedRef.current === src) return;
     autoLoadedRef.current = src;
-    void loadScene(src, { progressiveLoad: true, splatAlphaRemovalThreshold: 1, framing: framingRef.current ?? undefined }).then(() => {
+    void loadScene(src, { progressiveLoad: true, framing: framingRef.current ?? undefined }).then(() => {
       // First-person modes probe the ground, so they wait for the whole scene.
       if (initialNavigation === 'orbit' || autoLoadedRef.current !== src) return;
       applyNavigation({ mode: initialNavigation });
@@ -587,7 +591,7 @@ const Home = forwardRef<SplatViewerRef, SplatViewerProps>(function Home({ showUI
     if (isMobile) setMobileSheetState('idle');
     await loadScene(scene.url, {
       progressiveLoad: true,
-      splatAlphaRemovalThreshold: 1,
+      splatAlphaRemovalThreshold: DEFAULT_ALPHA_THRESHOLD,
       format: scene.format,
     });
   }, [loadScene, isMobile]);

@@ -12,6 +12,7 @@
  * splats stay out of the fp16 subnormal range; the shader undoes it.
  */
 import type { VoxelGridData } from './collision';
+import type { FrustumParams } from './frustum';
 
 export const SPLAT_WORDS = 8;
 export const SPLAT_BYTES = SPLAT_WORDS * 4;
@@ -42,6 +43,8 @@ export type MainToWorker =
       /** Column-major view matrix (only the depth row is used). */
       view: Float32Array;
       lod: LodParams;
+      /** Tight frustum culling (see frustum.ts); null keeps every splat centred within the loose margin. */
+      frustum: FrustumParams | null;
     }
   /** Hands an order buffer back after its contents were uploaded to the GPU. */
   | { type: 'recycle'; order: Uint32Array }
@@ -73,6 +76,8 @@ export interface LodParams {
   /** 0 disables LOD. */
   minPx: number;
   minKeep: number;
+  /** Most splats to keep (0 = no limit): the thinning threshold rises until the expected count fits. */
+  budget: number;
 }
 
 /** Largest footprint enlargement for thinned splats (must match the shader decode). */
@@ -102,6 +107,8 @@ export type WorkerToMain =
       packed: boolean;
       /** Splats skipped by distance LOD this sort. */
       lodCulled: number;
+      /** Splats the loose margin would have kept that tight culling dropped (0 when it is off). */
+      offscreen: number;
     }
   | { type: 'picked'; id: number; point: [number, number, number] | null }
   /** Rejilla de colisión de la escena completa; llega justo antes de 'done'. */

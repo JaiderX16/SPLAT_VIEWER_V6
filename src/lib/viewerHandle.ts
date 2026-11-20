@@ -31,6 +31,15 @@ export interface NavigationSettings {
 export type LodQuality = 'high' | 'balanced' | 'performance';
 
 /**
+ * Splats fainter than this alpha (0–255) are dropped while loading. Measured on an interior scan, 8 removes
+ * ~30 % of the splats (and of GPU memory and sort time) at 46–47 dB PSNR: no visible change.
+ */
+export const DEFAULT_ALPHA_THRESHOLD = 8;
+
+/** Most splats drawn per view (WebGPU backend); 0 = no limit. Phones choke past ~100 K. */
+export const SPLAT_BUDGETS = [100_000, 300_000, 1_000_000, 0] as const;
+
+/**
  * Encuadre propio de un modelo. Solo el renderizador WebGPU (.splat) lo aplica; sin él se usa CAMERA/INTRO.
  * - Exterior (órbita): `target` es el punto que rodea la cámara; `distance`, `elevation` y `azimuth`
  *   dicen desde dónde lo mira.
@@ -69,6 +78,10 @@ export interface ViewerStats {
   renderCount: number;
   /** Splats skipped by distance LOD (0 when unsupported). */
   lodCulled: number;
+  /** Splats hidden because no part of them reaches the screen (null when unsupported). */
+  offscreenCulled: number | null;
+  /** GPU time of the splat pass, ms (timestamp queries; null when unsupported). */
+  gpuMs: number | null;
   fps: number | null;
   sortTimeMs: number;
   drawCalls: number | null;
@@ -119,6 +132,12 @@ export interface SplatViewerHandle {
   setSpinSpeed?: (rpm: number) => void;
   /** Entra o sale de una sesión WebXR inmersiva, cuando el backend lo admite. */
   toggleVR?: () => Promise<void>;
+  /** Ocultar los splats que la cámara no ve (frustum ajustado a cada splat); ausente si el backend no lo admite. */
+  setHideUnseen?: (enabled: boolean) => void;
+  getHideUnseen?: () => boolean;
+  /** Máximo de splats dibujados por vista (0 = sin límite); ausente si el backend no lo admite. */
+  setSplatBudget?: (budget: number) => void;
+  getSplatBudget?: () => number;
 }
 
 export interface SplatViewerProps {

@@ -11,6 +11,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Link, FileUp, Globe } from 'lucide-react';
+import { DEFAULT_ALPHA_THRESHOLD } from '@/lib/viewerHandle';
 
 export interface SceneUploaderProps {
   onLoadFile: (file: File, options: LoadOptions) => void;
@@ -28,7 +29,7 @@ export interface LoadOptions {
 }
 
 const defaultOptions: LoadOptions = {
-  splatAlphaRemovalThreshold: 1,
+  splatAlphaRemovalThreshold: DEFAULT_ALPHA_THRESHOLD,
   progressiveLoad: true,
   position: [0, 0, 0],
   rotation: [0, 0, 0, 1],

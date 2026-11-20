@@ -1,7 +1,8 @@
 import { useEffect, useState, useCallback, type RefObject } from 'react';
-import { Box, Grid3x3, Compass, Sun, Moon, X } from 'lucide-react';
+import { Box, Grid3x3, Compass, EyeOff, Sun, Moon, X } from 'lucide-react';
 import { Slider } from '@/components/ui/slider';
-import type { CameraView, LodQuality, SplatViewerHandle } from '@/lib/viewerHandle';
+import { SPLAT_BUDGETS, type CameraView, type LodQuality, type SplatViewerHandle } from '@/lib/viewerHandle';
+import { formatCompactNumber } from '@/lib/performanceBenchmark';
 
 const LOD_OPTIONS: Array<{ value: LodQuality; label: string; title: string }> = [
   { value: 'high', label: 'Alta', title: 'Sin LOD: todos los splats a calidad completa' },
@@ -45,6 +46,9 @@ export default function AdvancedControlsPanel({
   const [supportsSH, setSupportsSH] = useState(true);
   const [supportsLod, setSupportsLod] = useState(false);
   const [lod, setLod] = useState<LodQuality>('balanced');
+  const [hideUnseen, setHideUnseen] = useState(true);
+  const [supportsHide, setSupportsHide] = useState(false);
+  const [budget, setBudget] = useState<number | null>(null);
 
   // Sync state from viewer when panel becomes visible
   useEffect(() => {
@@ -56,6 +60,9 @@ export default function AdvancedControlsPanel({
     setSupportsSH(viewer.supportsSphericalHarmonics);
     setSupportsLod(viewer.supportsLod);
     setLod(viewer.getLodQuality());
+    setSupportsHide(!!viewer.setHideUnseen);
+    setHideUnseen(viewer.getHideUnseen?.() ?? false);
+    setBudget(viewer.getSplatBudget?.() ?? null);
   }, [visible, viewerRef]);
 
   const handleApplyView = useCallback((view: CameraView) => {
@@ -183,6 +190,50 @@ export default function AdvancedControlsPanel({
                 </button>
               ))}
             </div>
+            <div className="w-px h-5 bg-black/[0.06] dark:bg-black/[0.20]" />
+          </>
+        )}
+
+        {/* Splat budget */}
+        {budget !== null && (
+          <>
+            <div className="flex items-center gap-1" role="group" aria-label="Máximo de splats dibujados">
+              <span className="text-[11px] text-[#46464b] dark:text-white/85 mx-1">Máx.</span>
+              {SPLAT_BUDGETS.map((value) => (
+                <button
+                  key={value}
+                  title={value ? `Dibuja como mucho ${value.toLocaleString()} splats: aligera primero los más pequeños` : 'Sin límite de splats'}
+                  aria-pressed={budget === value}
+                  onClick={() => {
+                    setBudget(value);
+                    viewerRef.current?.setSplatBudget?.(value);
+                  }}
+                  className="pill"
+                >
+                  {value ? formatCompactNumber(value) : 'Todos'}
+                </button>
+              ))}
+            </div>
+            <div className="w-px h-5 bg-black/[0.06] dark:bg-black/[0.20]" />
+          </>
+        )}
+
+        {/* Hide what the camera does not see */}
+        {supportsHide && (
+          <>
+            <button
+              title="Ocultar los splats que la cámara no ve: no se ordenan ni se dibujan"
+              aria-pressed={hideUnseen}
+              onClick={() => {
+                const next = !hideUnseen;
+                setHideUnseen(next);
+                viewerRef.current?.setHideUnseen?.(next);
+              }}
+              className="pill"
+            >
+              <EyeOff className="w-3.5 h-3.5" />
+              Ocultar no visibles
+            </button>
             <div className="w-px h-5 bg-black/[0.06] dark:bg-black/[0.20]" />
           </>
         )}

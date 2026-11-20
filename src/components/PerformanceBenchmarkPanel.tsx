@@ -9,8 +9,14 @@ export interface PerformanceBenchmarkInfo {
   jsHeapMB: number | null;
   totalSplats: number;
   activeSplats: number;
+  /** Splats hidden because the camera does not see them (null when the option is off or unsupported). */
+  offscreenCulled: number | null;
+  /** Splats thinned by distance LOD and the splat budget. */
+  lodCulled: number;
   drawCalls: number | null;
   sortTimeMs: number;
+  /** GPU time of the splat pass, ms (null without timestamp queries). */
+  gpuMs: number | null;
   devicePixelRatio: number;
   renderPixelRatio: number | null;
   renderSize: string;
@@ -134,7 +140,7 @@ export default function PerformanceBenchmarkPanel({ info, visible }: Performance
             icon={<Layers3 className="h-3.5 w-3.5" />}
             label="Splats activos"
             value={formatCompactNumber(info.activeSplats)}
-            detail={`${formatCompactNumber(info.totalSplats)} totales`}
+            detail={`${formatCompactNumber(info.totalSplats)} totales${info.offscreenCulled !== null ? ` · ${formatCompactNumber(info.offscreenCulled)} fuera` : ''}${info.lodCulled > 0 ? ` · ${formatCompactNumber(info.lodCulled)} aligerados` : ''}`}
             status={info.score.splats.status}
           />
           <MetricRow
@@ -152,10 +158,14 @@ export default function PerformanceBenchmarkPanel({ info, visible }: Performance
             status={info.score.resolution.status}
           />
 
-          <div className="grid grid-cols-3 gap-2 border-t border-black/[0.06] dark:border-white/[0.14] pt-2 text-[11px]">
+          <div className="grid grid-cols-4 gap-2 border-t border-black/[0.06] dark:border-white/[0.14] pt-2 text-[11px]">
             <div className="panel-chip bg-black/[0.04] dark:bg-black/[0.20] px-2 py-1.5">
               <div className="text-[#46464b] dark:text-white/85">Sort</div>
               <div className="font-mono text-neutral-800 dark:text-white">{info.sortTimeMs.toFixed(1)} ms</div>
+            </div>
+            <div className="panel-chip bg-black/[0.04] dark:bg-black/[0.20] px-2 py-1.5" title="Tiempo de GPU del último fotograma dibujado">
+              <div className="text-[#46464b] dark:text-white/85">GPU</div>
+              <div className="font-mono text-neutral-800 dark:text-white">{info.gpuMs === null ? 'N/A' : `${info.gpuMs.toFixed(1)} ms`}</div>
             </div>
             <div className="panel-chip bg-black/[0.04] dark:bg-black/[0.20] px-2 py-1.5">
               <div className="text-[#46464b] dark:text-white/85">Heap JS</div>
