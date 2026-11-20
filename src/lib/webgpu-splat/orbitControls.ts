@@ -32,10 +32,10 @@ const LOOK_MAX_PHI = Math.PI * 0.97;
  */
 const INTERIOR = {
   EYE: 1.65,
+  /** Camera collision: walls and anything within this of the eyes stop it; lower things are flown over. */
   RADIUS: 0.2,
-  /** Steps over anything lower; the floor may rise or drop this much from one step to the next. */
+  /** The floor may rise or drop this much from one step to the next; taps within it count as floor. */
   STEP: 0.3,
-  HEAD: 0.1,
   /** Walking speed, m/s. */
   SPEED: 1.3,
   /** Tapping a wall or a piece of furniture stops this far before it. */
@@ -388,7 +388,8 @@ export class OrbitControls {
     let dest: Vec3;
     const grid = this.interiorGrid;
     if (grid) {
-      // Interior: floor taps go right there, walls and furniture are approached; the walk stops before obstacles.
+      // Interior: floor taps go right there, walls and furniture are approached; the walk flies over low
+      // things and stops before anything at eye height.
       const feet = this.feet();
       const len = vec3.length(flat);
       const onFloor = Math.abs(vec3.dot(point, this.up) - vec3.dot(feet, this.up)) <= this.body.step;
@@ -612,7 +613,7 @@ export class OrbitControls {
 
   private get body(): Body {
     const u = this.unitsPerMeter;
-    return { eye: INTERIOR.EYE * u, radius: INTERIOR.RADIUS * u, step: INTERIOR.STEP * u, head: INTERIOR.HEAD * u };
+    return { eye: INTERIOR.EYE * u, radius: INTERIOR.RADIUS * u, step: INTERIOR.STEP * u };
   }
 
   /** Feet under the eye goal, on the known ground. */

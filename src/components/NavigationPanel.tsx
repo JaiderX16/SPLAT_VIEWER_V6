@@ -19,7 +19,7 @@ const NAVIGATION_MODES: ModeInfo[] = [
   {
     id: 'interior',
     name: 'Interior',
-    description: 'Recorre habitaciones a la altura de los ojos sin atravesar paredes ni muebles.',
+    description: 'Recorre habitaciones a la altura de los ojos: pasa sobre los muebles, no atraviesa paredes.',
     icon: DoorOpen,
     recommended: true,
     mouse: [
