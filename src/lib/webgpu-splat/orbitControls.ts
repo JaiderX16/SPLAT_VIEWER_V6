@@ -1,5 +1,6 @@
 import { vec3, type Vec3 } from './math';
 import type { NavigationMode } from '../viewerHandle';
+import type { Body, CollisionGrid } from './collision';
 
 export interface OrbitLimits {
   minDistance: number;
@@ -25,6 +26,26 @@ const TURN_SPEED = 1.6;
 /** First-person views may look almost straight up or down. */
 const LOOK_MIN_PHI = Math.PI * 0.03;
 const LOOK_MAX_PHI = Math.PI * 0.97;
+/**
+ * Interior: a person's proportions in metres, turned into scene units by the collision grid's
+ * units per metre (before the grid arrives, by the walk heuristic).
+ */
+const INTERIOR = {
+  EYE: 1.65,
+  RADIUS: 0.2,
+  /** Steps over anything lower; the floor may rise or drop this much from one step to the next. */
+  STEP: 0.3,
+  HEAD: 0.1,
+  /** Walking speed, m/s. */
+  SPEED: 1.3,
+  /** Tapping a wall or a piece of furniture stops this far before it. */
+  STAND_OFF: 0.6,
+  /** Entering the mode looks this far around for a free spot to stand. */
+  LAND_RADIUS: 4,
+  /** Natural look up / down limits: ±75° from the horizon. */
+  MIN_PHI: Math.PI / 12,
+  MAX_PHI: (Math.PI * 11) / 12,
+};
 const MOVE_KEYS = new Set([
   'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE',
   'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ShiftLeft', 'ShiftRight',
@@ -93,6 +114,8 @@ export class OrbitControls {
   private ground: number | null = null;
   /** Q/E adjust the eye height above the ground in walk mode. */
   private eyeHeightScale = 1;
+  /** Interior: what the camera may not walk through (null until the scene has fully loaded). */
+  private collider: CollisionGrid | null = null;
   private readonly keys = new Set<string>();
   private gyroLast: [number, number] | null = null;
   private gyroOn = false;
@@ -139,13 +162,49 @@ export class OrbitControls {
     return this.navMode;
   }
 
-  /** Walk and panorama keep the eye at `eyeHeight` above the probed ground. */
+  /** Interior, walk and panorama keep the eye at `eyeHeight` above the ground. */
   get followsGround() {
-    return this.navMode === 'walk' || this.navMode === 'look';
+    return this.navMode === 'interior' || this.navMode === 'walk' || this.navMode === 'look';
+  }
+
+  /** The owner probes the ground for us, except in interior with a collision grid (it walks on the grid). */
+  get needsGroundProbe() {
+    return this.followsGround && !this.interiorGrid;
   }
 
   get eyeHeight() {
+    if (this.navMode === 'interior') return INTERIOR.EYE * this.unitsPerMeter;
     return EYE_HEIGHT * this.sceneScale * this.eyeHeightScale;
+  }
+
+  /**
+   * Interior collisions. Arriving while in interior (the scene just finished loading) lands the
+   * camera on the nearest free spot, at the real eye height.
+   */
+  setCollider(grid: CollisionGrid | null) {
+    this.collider = grid;
+    this.landNear(this.goalEye, this.lookAhead());
+  }
+
+  /** Interior: the first solid voxel along a tap ray, the same surfaces the camera collides with. Null otherwise. */
+  raycast(origin: Vec3, dir: Vec3): Vec3 | null {
+    return this.interiorGrid?.raycast(origin, dir) ?? null;
+  }
+
+  /**
+   * Interior: glides to the free spot nearest to `near` (on the main floor), else nearest to the
+   * camera (an orbit pivot can lie outside the rooms), at eye height and facing `lookAt`. False
+   * without a collision grid or a free spot.
+   */
+  landNear(near: Vec3, lookAt: Vec3): boolean {
+    const grid = this.interiorGrid;
+    if (!grid) return false;
+    const ground = grid.floor ?? vec3.dot(near, this.up) - this.eyeHeight;
+    const radius = INTERIOR.LAND_RADIUS * this.unitsPerMeter;
+    const spot = grid.findStand(near, ground, this.body, radius) ?? grid.findStand(this.goalEye, ground, this.body, radius);
+    if (!spot) return false;
+    this.landAt(spot, lookAt);
+    return true;
   }
 
   /** Where the eye is heading (first-person modes); the ground probe looks below it. */
@@ -182,6 +241,7 @@ export class OrbitControls {
    */
   setMode(mode: NavigationMode) {
     if (mode === this.navMode) return;
+    const from = this.navMode;
     if (this.navMode === 'orbit') {
       this.autoRotate = false;
       this.cancelFly();
@@ -199,6 +259,8 @@ export class OrbitControls {
       this.goalPhi = this.clampPhi(this.goalPhi);
       this.goalRadius = this.radius;
     }
+    // Interior from another first-person mode: stand on the nearest free spot (from orbit the owner picks where).
+    if (from !== 'orbit') this.landNear(this.goalEye, this.lookAhead());
     this.dirty = true;
   }
 
@@ -324,7 +386,17 @@ export class OrbitControls {
     const d = vec3.sub(point, this.goalEye);
     const flat = this.horizontal(d);
     let dest: Vec3;
-    if (this.navMode === 'fly') {
+    const grid = this.interiorGrid;
+    if (grid) {
+      // Interior: floor taps go right there, walls and furniture are approached; the walk stops before obstacles.
+      const feet = this.feet();
+      const len = vec3.length(flat);
+      const onFloor = Math.abs(vec3.dot(point, this.up) - vec3.dot(feet, this.up)) <= this.body.step;
+      const reach = onFloor ? len : Math.max(0, len - INTERIOR.STAND_OFF * this.unitsPerMeter);
+      const stop = grid.walk(feet, vec3.add(feet, vec3.scale(flat, reach / Math.max(len, 1e-9))), this.body);
+      this.ground = vec3.dot(stop, this.up);
+      dest = vec3.add(stop, vec3.scale(this.up, this.eyeHeight));
+    } else if (this.navMode === 'fly') {
       dest = vec3.add(this.goalEye, vec3.scale(d, 0.8));
     } else if (-vec3.dot(d, this.up) > 0.5 * this.eyeHeight) {
       this.ground = vec3.dot(point, this.up);
@@ -520,7 +592,38 @@ export class OrbitControls {
   }
 
   private get moveSpeed() {
+    if (this.navMode === 'interior') return INTERIOR.SPEED * this.unitsPerMeter * this.speed;
     return (this.navMode === 'fly' ? FLY_SPEED : WALK_SPEED) * this.sceneScale * this.speed;
+  }
+
+  /** The collision grid while in interior. */
+  private get interiorGrid() {
+    return this.navMode === 'interior' ? this.collider : null;
+  }
+
+  /**
+   * Interior scale, from the grid's room height. Without one (still loading, or no ceiling found)
+   * it falls back to the walk heuristic, so the eye stays at walk height.
+   * shortcut: a scan without a ceiling gets that heuristic; a per-scene metres setting would fix it.
+   */
+  private get unitsPerMeter() {
+    return this.collider?.unitsPerMeter ?? (EYE_HEIGHT * this.sceneScale) / INTERIOR.EYE;
+  }
+
+  private get body(): Body {
+    const u = this.unitsPerMeter;
+    return { eye: INTERIOR.EYE * u, radius: INTERIOR.RADIUS * u, step: INTERIOR.STEP * u, head: INTERIOR.HEAD * u };
+  }
+
+  /** Feet under the eye goal, on the known ground. */
+  private feet(): Vec3 {
+    const h = vec3.dot(this.goalEye, this.up);
+    return vec3.add(this.goalEye, vec3.scale(this.up, (this.ground ?? h - this.eyeHeight) - h));
+  }
+
+  /** A point straight ahead of the eye goal, level. */
+  private lookAhead(): Vec3 {
+    return vec3.sub(this.goalEye, this.offset(this.goalTheta, Math.PI / 2, 1));
   }
 
   /** Moves the eye goal along the view: forward (walk: level), right, and up (`amount` world units). */
@@ -533,14 +636,25 @@ export class OrbitControls {
     const len = vec3.length(dir);
     if (len < 1e-6) return;
     this.eyeTravel = null;
-    this.goalEye = vec3.add(this.goalEye, vec3.scale(dir, amount / Math.max(len, 1)));
+    const step = vec3.scale(dir, amount / Math.max(len, 1));
+    const grid = this.interiorGrid;
+    if (grid) {
+      // Interior: walk the step on the floor, sliding along whatever blocks it.
+      const feet = this.feet();
+      const stop = grid.slide(feet, vec3.add(feet, step), this.body);
+      this.ground = vec3.dot(stop, this.up);
+      this.goalEye = vec3.add(stop, vec3.scale(this.up, this.eyeHeight));
+    } else {
+      this.goalEye = vec3.add(this.goalEye, step);
+    }
     this.dirty = true;
   }
 
   /** Turns the first-person view: positive yaw turns right, positive pitch looks up. */
   private lookBy(yaw: number, pitch: number) {
+    const [min, max] = this.navMode === 'interior' ? [INTERIOR.MIN_PHI, INTERIOR.MAX_PHI] : [LOOK_MIN_PHI, LOOK_MAX_PHI];
     this.goalTheta -= yaw;
-    this.goalPhi = Math.max(LOOK_MIN_PHI, Math.min(LOOK_MAX_PHI, this.goalPhi + pitch));
+    this.goalPhi = Math.max(min, Math.min(max, this.goalPhi + pitch));
     this.dirty = true;
   }
 

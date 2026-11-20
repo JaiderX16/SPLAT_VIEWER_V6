@@ -5,6 +5,7 @@ import helpersShader from './helpers.wgsl';
 import { cameraRay, intersectPlane, lookAt, multiply, orthographic, perspective, vec3, type Ray, type Vec3 } from './math';
 import { EditorView, type PixelRect } from './EditorView';
 import { OrbitControls, type OrbitLimits } from './orbitControls';
+import { CollisionGrid } from './collision';
 import type { NavigationMode, NavigationSettings } from '../viewerHandle';
 import { LOD_MAX_SCALE, REVEAL_QUANTILE_STEPS, SPLAT_BYTES, type LodParams, type MainToWorker, type SceneTransform, type WorkerToMain } from './protocol';
 
@@ -84,8 +85,9 @@ const REVEAL = {
 const easeOutReveal = (t: number) => 1 - Math.pow(1 - Math.min(Math.max(t, 0), 1), 2.5);
 /** View-projection change (max abs element delta) that triggers a re-sort. */
 const SORT_EPSILON = 1e-3;
-/** A press counts as a click (not a drag) under these thresholds. */
+/** A press counts as a click (not a drag) under these thresholds; fingers jitter more than a mouse. */
 const CLICK_MAX_MOVE_PX = 5;
+const TAP_MAX_MOVE_PX = 10;
 const CLICK_MAX_MS = 500;
 /** Walk / panorama: how often the ground under the eye is re-probed while moving. */
 const GROUND_PROBE_MS = 150;
@@ -97,6 +99,8 @@ const INTRO_SWEEP = Math.PI * 0.75;
 const TRAVEL_DISTANCE_FACTOR = 0.45;
 const TRAVEL_MS = 900;
 const MAP_TRAVEL_MS = 1100;
+/** Interior on a portrait screen: a 50° view is a tunnel, so it widens while in the mode. */
+const INTERIOR_PORTRAIT_FOV = 70;
 
 /** True when the browser exposes a usable WebGPU adapter. */
 export async function isWebGPUAvailable(): Promise<boolean> {
@@ -144,14 +148,14 @@ export class SplatRenderer {
   private readonly onNavigate?: SplatRendererOptions['onNavigate'];
   private loop: FrameLoopHandle | null = null;
 
-  private press: { id: number; x: number; y: number; t: number; inMap: boolean } | null = null;
+  private press: { id: number; x: number; y: number; t: number; inMap: boolean; maxMove: number } | null = null;
   private activePointers = 0;
   private navToken = 0;
   private groundProbing = false;
   private lastGroundProbe = 0;
   private lastProbeEye: Vec3 | null = null;
-  /** Panorama zooms by field of view; the user's FOV comes back when leaving it. */
-  private fovBeforeLook: number | null = null;
+  /** Panorama and interior change the field of view; the user's FOV comes back when leaving them. */
+  private fovBefore: number | null = null;
   private pickId = 0;
   private readonly pendingPicks = new Map<number, (point: Vec3 | null) => void>();
 
@@ -356,6 +360,7 @@ export class SplatRenderer {
     this.visibleCount = 0;
     this.dataSinceSort = false;
     this.reveal = null;
+    this.controls.setCollider(null);
     this.needsRender = true;
   }
 
@@ -399,8 +404,11 @@ export class SplatRenderer {
     const pivot = c.getTarget();
     this.flyEndSpeed = null;
     this.lastProbeEye = null;
-    if (from === 'look' && this.fovBeforeLook !== null) this.setFov(this.fovBeforeLook);
-    this.fovBeforeLook = mode === 'look' ? this.fovDeg : null;
+    if (this.fovBefore !== null) this.setFov(this.fovBefore);
+    const [w, h] = this.surf.size;
+    const portraitInterior = mode === 'interior' && h > w;
+    this.fovBefore = mode === 'look' || portraitInterior ? this.fovDeg : null;
+    if (portraitInterior) this.setFov(INTERIOR_PORTRAIT_FOV);
     c.setMode(mode);
     if (from === 'orbit' && c.followsGround) void this.descendToGround(pivot, mode);
     this.needsRender = true;
@@ -765,6 +773,10 @@ export class SplatRenderer {
         resolve?.(msg.point);
         break;
       }
+      case 'grid':
+        // Only for the load still in flight: a cleared scene's grid is stale.
+        if (this.pendingLoad) this.controls.setCollider(CollisionGrid.create(msg.grid, this.controls.up));
+        break;
       case 'error':
         this.failLoad(new Error(msg.message));
         break;
@@ -813,7 +825,9 @@ export class SplatRenderer {
       return;
     }
     const inMap = this.inEditor(e);
-    this.press = this.activePointers === 1 ? { id: e.pointerId, x: e.clientX, y: e.clientY, t: performance.now(), inMap } : null;
+    this.press = this.activePointers === 1
+      ? { id: e.pointerId, x: e.clientX, y: e.clientY, t: performance.now(), inMap, maxMove: e.pointerType === 'mouse' ? CLICK_MAX_MOVE_PX : TAP_MAX_MOVE_PX }
+      : null;
     if (inMap) {
       e.stopImmediatePropagation(); // the editor view is a minimap, not an orbit surface
       e.preventDefault();
@@ -840,7 +854,7 @@ export class SplatRenderer {
     if (!press || press.id !== e.pointerId) return;
     if (press.inMap) e.stopImmediatePropagation();
     const moved = Math.hypot(e.clientX - press.x, e.clientY - press.y);
-    if (moved > CLICK_MAX_MOVE_PX || performance.now() - press.t > CLICK_MAX_MS) return;
+    if (moved > press.maxMove || performance.now() - press.t > CLICK_MAX_MS) return;
     if (press.inMap) void this.navigateFromMap(e);
     else void this.navigateFromScene(e);
   };
@@ -876,7 +890,8 @@ export class SplatRenderer {
       8,
       h,
     );
-    const point = await this.pick(ray);
+    // Interior taps hit the collision grid (also semi-transparent floors); otherwise the splat pick.
+    const point = this.controls.raycast(ray.origin, ray.dir) ?? (await this.pick(ray));
     if (!point || token !== this.navToken) return;
     if (this.controls.mode !== 'orbit') {
       this.controls.walkTo(point);
@@ -916,6 +931,7 @@ export class SplatRenderer {
     const flat = vec3.sub(toPivot, vec3.scale(up, vec3.dot(toPivot, up)));
     const len = vec3.length(flat);
     const stand = len > 1e-6 ? vec3.add(pivot, vec3.scale(flat, (-STAND_BACK * c.sceneScale) / len)) : pivot;
+    if (c.landNear(stand, pivot)) return; // interior with a collision grid: the nearest spot where a person fits
     // Probe straight down from above the standing spot (at least the camera's altitude).
     const altitude = Math.max(vec3.dot(eye, up), vec3.dot(stand, up) + c.sceneScale);
     const origin = vec3.add(stand, vec3.scale(up, altitude - vec3.dot(stand, up)));
@@ -927,7 +943,7 @@ export class SplatRenderer {
   /** Walk / panorama: keep sampling the ground under the eye so the camera rides terrain and steps. */
   private probeGround(now: number) {
     const c = this.controls;
-    if (!c.followsGround || c.isTravelling || this.groundProbing || now - this.lastGroundProbe < GROUND_PROBE_MS) return;
+    if (!c.needsGroundProbe || c.isTravelling || this.groundProbing || now - this.lastGroundProbe < GROUND_PROBE_MS) return;
     const eye = c.eyeGoal;
     const last = this.lastProbeEye;
     if (last && vec3.length(vec3.sub(eye, last)) < c.eyeHeight * 0.05) return; // standing still
@@ -937,7 +953,7 @@ export class SplatRenderer {
     const down = vec3.scale(c.up, -1);
     void this.pick({ origin: eye, dir: down, coneTan: 0.03, coneRadius: c.eyeHeight * 0.25, near: 1e-4 }).then((hit) => {
       this.groundProbing = false;
-      if (hit && c.followsGround) c.setGround(vec3.dot(hit, c.up));
+      if (hit && c.needsGroundProbe) c.setGround(vec3.dot(hit, c.up));
     });
   }
 

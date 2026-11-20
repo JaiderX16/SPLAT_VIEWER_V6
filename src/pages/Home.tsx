@@ -49,7 +49,15 @@ import {
 // when WebGPU is unavailable or a non-.splat format is opened.
 const GaussianSplatViewer = lazy(() => import('@/components/GaussianSplatViewer'));
 
+// Escena local (carpeta model/), la que App abre por defecto.
+export const DEFAULT_SCENE_URL = 'model/scene.splat';
+
 const DEMO_SCENES: Array<{ name: string; url: string; format: LoadOptions['format'] }> = [
+  {
+    name: 'Scene',
+    url: DEFAULT_SCENE_URL,
+    format: 'splat',
+  },
   {
     name: 'APATA FUENTE',
     url: 'https://huggingface.co/datasets/JaiderX16/MemorIA/resolve/main/APATA-FUENTEt.splat',
@@ -149,7 +157,7 @@ interface SplatViewerProps {
   showUI?: boolean;
   /** Scene to load on mount (e.g. an embedded viewer with `showUI={false}`). */
   src?: string;
-  /** Navigation once `src` has loaded: 'orbit' circles an exterior, 'look' stands inside an interior. */
+  /** Navigation once `src` has loaded: 'orbit' circles an exterior, 'interior' walks it at head height, 'look' stands inside. */
   initialNavigation?: NavigationMode;
   /** Encuadre de `src`: punto que rodea la cámara, distancia y ángulos (solo WebGPU). */
   framing?: CameraFraming;

@@ -36,3 +36,6 @@ lerna-debug.log*
 .env.local
 .env.*.local
 coverage
+
+# Modelos locales pesados
+model/

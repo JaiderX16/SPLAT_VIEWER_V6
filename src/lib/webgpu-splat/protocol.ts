@@ -11,6 +11,8 @@
  * The 3D covariance is stored pre-multiplied by COVARIANCE_PACK_SCALE so tiny
  * splats stay out of the fp16 subnormal range; the shader undoes it.
  */
+import type { VoxelGridData } from './collision';
+
 export const SPLAT_WORDS = 8;
 export const SPLAT_BYTES = SPLAT_WORDS * 4;
 /** Size of one record in the antimatter15 `.splat` format. */
@@ -102,4 +104,6 @@ export type WorkerToMain =
       lodCulled: number;
     }
   | { type: 'picked'; id: number; point: [number, number, number] | null }
+  /** Rejilla de colisión de la escena completa; llega justo antes de 'done'. */
+  | { type: 'grid'; grid: VoxelGridData }
   | { type: 'error'; message: string };

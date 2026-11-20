@@ -12,11 +12,12 @@ export type SceneFormat = 'auto' | 'ply' | 'splat' | 'ksplat' | 'spz';
 
 /**
  * How the user moves through the scene: orbit around it, or explore it in first
- * person (walk on the ground, panorama look-around, free fly).
+ * person (interior at head height with collisions, walk on the ground, panorama
+ * look-around, free fly).
  */
-export type NavigationMode = 'orbit' | 'walk' | 'look' | 'fly';
+export type NavigationMode = 'orbit' | 'interior' | 'walk' | 'look' | 'fly';
 /** Order of the navigation panel and of the `V` shortcut. */
-export const NAVIGATION_CYCLE: NavigationMode[] = ['walk', 'look', 'fly', 'orbit'];
+export const NAVIGATION_CYCLE: NavigationMode[] = ['interior', 'walk', 'look', 'fly', 'orbit'];
 
 export interface NavigationSettings {
   mode: NavigationMode;

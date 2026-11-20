@@ -1,4 +1,4 @@
-import { Compass, Footprints, Orbit, Plane, ScanEye, Smartphone, X, type LucideIcon } from 'lucide-react';
+import { Compass, DoorOpen, Footprints, Orbit, Plane, ScanEye, Smartphone, X, type LucideIcon } from 'lucide-react';
 import type { NavigationMode, NavigationSettings } from '@/lib/viewerHandle';
 import { GlassBackdrop } from '@/components/LiquidGlass';
 
@@ -17,11 +17,31 @@ interface ModeInfo {
 /** Same order as NAVIGATION_CYCLE (the `V` shortcut). */
 const NAVIGATION_MODES: ModeInfo[] = [
   {
+    id: 'interior',
+    name: 'Interior',
+    description: 'Recorre habitaciones a la altura de los ojos sin atravesar paredes ni muebles.',
+    icon: DoorOpen,
+    recommended: true,
+    mouse: [
+      ['Clic en el suelo', 'Ir hasta ahí'],
+      ['Arrastrar', 'Mirar alrededor'],
+      ['W A S D · ↑ ↓', 'Caminar'],
+      ['← →', 'Girar'],
+      ['Shift', 'Correr'],
+      ['Rueda', 'Avanzar / retroceder'],
+    ],
+    touch: [
+      ['Tocar el suelo', 'Ir hasta ahí'],
+      ['1 dedo', 'Mirar alrededor'],
+      ['2 dedos', 'Caminar (arriba = avanzar)'],
+      ['Pellizcar', 'Avanzar / retroceder'],
+    ],
+  },
+  {
     id: 'walk',
     name: 'Recorrer',
-    description: 'Camina por el lugar a la altura de los ojos, siguiendo el suelo.',
+    description: 'Camina por espacios abiertos siguiendo el terreno.',
     icon: Footprints,
-    recommended: true,
     mouse: [
       ['Arrastrar', 'Mirar alrededor'],
       ['W A S D · ↑ ↓', 'Caminar'],
@@ -189,7 +209,7 @@ export default function NavigationPanel({ settings, onChange, onClose }: Navigat
         })}
       </div>
 
-      {(settings.mode === 'walk' || settings.mode === 'fly') && (
+      {(settings.mode === 'interior' || settings.mode === 'walk' || settings.mode === 'fly') && (
         <div className="mt-3 flex items-center justify-between gap-3 pl-2">
           <span className={LABEL}>Velocidad</span>
           {/* pad 6 + 32px pill r16 = 22 */}

@@ -23,6 +23,7 @@ import {
   type SceneTransform,
   type WorkerToMain,
 } from './protocol';
+import { buildVoxelGrid, SURFACE_ALPHA } from './collision';
 
 const ctx = self as unknown as DedicatedWorkerGlobalScope;
 
@@ -33,8 +34,8 @@ const CULL_MARGIN = 1.4;
 const SORT_BUCKETS = 65536;
 /** Must match the vertex shader's near cull. */
 const NEAR_CULL = 0.05;
-/** Splats fainter than this are transparent to picking rays. */
-const PICK_MIN_ALPHA = 100;
+/** Splats fainter than this are transparent to picking rays (the collision grid shares the threshold). */
+const PICK_MIN_ALPHA = SURFACE_ALPHA;
 
 // ─── State ──────────────────────────────────────────────────────────────────
 let loadToken = 0;
@@ -301,6 +302,9 @@ async function load(url: string, alphaThreshold: number, transform: SceneTransfo
 
   if (token !== loadToken) return;
   if (splatCount === 0) throw new Error('El archivo no contiene splats válidos (.splat)');
+  // Before 'done': the main thread only accepts a grid while its load is still pending.
+  const grid = buildVoxelGrid(positions, alphas, splatCount);
+  if (grid) post({ type: 'grid', grid }, [grid.bits.buffer]);
   post({ type: 'done', count: splatCount });
   runPendingSort();
 }
