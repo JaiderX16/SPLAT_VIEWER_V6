@@ -228,6 +228,7 @@ const Home = forwardRef<SplatViewerRef, SplatViewerProps>(function Home({ showUI
   }), []);
   const [editorView, setEditorView] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isFallbackFullscreen, setIsFallbackFullscreen] = useState(false);
 
   const isMobile = useIsMobile();
   const { theme, toggleTheme } = useTheme();
@@ -238,25 +239,45 @@ const Home = forwardRef<SplatViewerRef, SplatViewerProps>(function Home({ showUI
   const sceneBackground = sceneLight ? '#c8c8cd' : '#000000';
 
   useEffect(() => {
-    const syncFullscreen = () => setIsFullscreen(document.fullscreenElement === appRef.current);
+    const syncFullscreen = () => {
+      const active = document.fullscreenElement === appRef.current;
+      setIsFullscreen(active);
+      if (active) setIsFallbackFullscreen(false);
+    };
     document.addEventListener('fullscreenchange', syncFullscreen);
     return () => document.removeEventListener('fullscreenchange', syncFullscreen);
   }, []);
 
   const handleToggleFullscreen = useCallback(async () => {
     const app = appRef.current;
-    if (!app || !document.fullscreenEnabled) return;
+    if (!app) return;
+
+    if (document.fullscreenElement === app) {
+      try {
+        await document.exitFullscreen();
+      } catch (error) {
+        console.error('No se pudo salir de pantalla completa.', error);
+      }
+      return;
+    }
+
+    if (isFallbackFullscreen) {
+      setIsFallbackFullscreen(false);
+      return;
+    }
+
+    if (!document.fullscreenEnabled) {
+      setIsFallbackFullscreen(true);
+      return;
+    }
 
     try {
-      if (document.fullscreenElement === app) {
-        await document.exitFullscreen();
-      } else {
-        await app.requestFullscreen();
-      }
+      await app.requestFullscreen();
     } catch (error) {
       console.error('No se pudo cambiar el modo de pantalla completa.', error);
+      setIsFallbackFullscreen(true);
     }
-  }, []);
+  }, [isFallbackFullscreen]);
 
   // ─── Backend selection ─────────────────────────────────────────────────────
   useEffect(() => {
@@ -572,7 +593,7 @@ const Home = forwardRef<SplatViewerRef, SplatViewerProps>(function Home({ showUI
   };
 
   return (
-    <div ref={appRef} className="msv">
+    <div ref={appRef} className={`msv${isFallbackFullscreen ? ' msv--fullscreen-fallback' : ''}`}>
 
       {showUI && (
         <>
@@ -716,12 +737,11 @@ const Home = forwardRef<SplatViewerRef, SplatViewerProps>(function Home({ showUI
             <button
               className="pill-btn"
               onClick={() => void handleToggleFullscreen()}
-              title={isFullscreen ? 'Salir de pantalla completa' : 'Pantalla completa'}
-              aria-label={isFullscreen ? 'Salir de pantalla completa' : 'Poner en pantalla completa'}
-              aria-pressed={isFullscreen}
-              disabled={!document.fullscreenEnabled}
+              title={isFullscreen || isFallbackFullscreen ? 'Salir de pantalla completa' : 'Pantalla completa'}
+              aria-label={isFullscreen || isFallbackFullscreen ? 'Salir de pantalla completa' : 'Poner en pantalla completa'}
+              aria-pressed={isFullscreen || isFallbackFullscreen}
             >
-              {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
+              {isFullscreen || isFallbackFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
             </button>
             <button className="pill-btn" onClick={handleResetCamera} title="Enfocar escena (0)" aria-label="Enfocar escena">
               <Crosshair className="w-4 h-4" />
