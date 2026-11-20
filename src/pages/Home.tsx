@@ -44,6 +44,8 @@ import {
   Moon,
   Box,
   Upload,
+  Maximize,
+  Minimize,
 } from 'lucide-react';
 
 // The WebGL fallback (three.js + GaussianSplats3D, ~1 MB) is only downloaded
@@ -185,6 +187,7 @@ export interface SplatViewerRef {
 }
 
 const Home = forwardRef<SplatViewerRef, SplatViewerProps>(function Home({ showUI = true, src, initialNavigation = 'orbit', framing, quality }, ref) {
+  const appRef = useRef<HTMLDivElement | null>(null);
   const viewerRef = useRef<SplatViewerHandle | null>(null);
   const viewerWaitersRef = useRef<Array<{ backend: RenderBackend; resolve: (h: SplatViewerHandle) => void }>>([]);
   const activeObjectUrlRef = useRef<string | null>(null);
@@ -224,6 +227,7 @@ const Home = forwardRef<SplatViewerRef, SplatViewerProps>(function Home({ showUI
     setSpinSpeed: (rpm: number) => viewerRef.current?.setSpinSpeed?.(rpm),
   }), []);
   const [editorView, setEditorView] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
 
   const isMobile = useIsMobile();
   const { theme, toggleTheme } = useTheme();
@@ -232,6 +236,27 @@ const Home = forwardRef<SplatViewerRef, SplatViewerProps>(function Home({ showUI
   const [sceneBgOverride, setSceneBgOverride] = useState<'light' | 'dark' | null>(null);
   const sceneLight = (sceneBgOverride ?? theme) === 'light';
   const sceneBackground = sceneLight ? '#c8c8cd' : '#000000';
+
+  useEffect(() => {
+    const syncFullscreen = () => setIsFullscreen(document.fullscreenElement === appRef.current);
+    document.addEventListener('fullscreenchange', syncFullscreen);
+    return () => document.removeEventListener('fullscreenchange', syncFullscreen);
+  }, []);
+
+  const handleToggleFullscreen = useCallback(async () => {
+    const app = appRef.current;
+    if (!app || !document.fullscreenEnabled) return;
+
+    try {
+      if (document.fullscreenElement === app) {
+        await document.exitFullscreen();
+      } else {
+        await app.requestFullscreen();
+      }
+    } catch (error) {
+      console.error('No se pudo cambiar el modo de pantalla completa.', error);
+    }
+  }, []);
 
   // ─── Backend selection ─────────────────────────────────────────────────────
   useEffect(() => {
@@ -547,7 +572,7 @@ const Home = forwardRef<SplatViewerRef, SplatViewerProps>(function Home({ showUI
   };
 
   return (
-    <div className="msv">
+    <div ref={appRef} className="msv">
 
       {showUI && (
         <>
@@ -687,6 +712,16 @@ const Home = forwardRef<SplatViewerRef, SplatViewerProps>(function Home({ showUI
               aria-label={theme === 'dark' ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'}
             >
               {theme === 'dark' ? <Sun className="w-4 h-4" strokeWidth={1.5} /> : <Moon className="w-4 h-4" strokeWidth={1.5} />}
+            </button>
+            <button
+              className="pill-btn"
+              onClick={() => void handleToggleFullscreen()}
+              title={isFullscreen ? 'Salir de pantalla completa' : 'Pantalla completa'}
+              aria-label={isFullscreen ? 'Salir de pantalla completa' : 'Poner en pantalla completa'}
+              aria-pressed={isFullscreen}
+              disabled={!document.fullscreenEnabled}
+            >
+              {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
             </button>
             <button className="pill-btn" onClick={handleResetCamera} title="Enfocar escena (0)" aria-label="Enfocar escena">
               <Crosshair className="w-4 h-4" />
