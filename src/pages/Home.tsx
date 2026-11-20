@@ -6,7 +6,6 @@ import InfoPanel, { type SceneInfo } from '@/components/InfoPanel';
 import PerformanceBenchmarkPanel, { type PerformanceBenchmarkInfo } from '@/components/PerformanceBenchmarkPanel';
 import AdvancedControlsPanel from '@/components/AdvancedControlsPanel';
 import NavigationPanel from '@/components/NavigationPanel';
-import { GlassBackdrop, LiquidGlassProvider } from '@/components/LiquidGlass';
 import { estimateGaussianSplatVramMB, scoreBenchmark } from '@/lib/performanceBenchmark';
 import { isWebGPUAvailable } from '@/lib/webgpu-splat/SplatRenderer';
 import { useTheme } from '@/hooks/useTheme';
@@ -187,9 +186,6 @@ export interface SplatViewerRef {
 
 const Home = forwardRef<SplatViewerRef, SplatViewerProps>(function Home({ showUI = true, src, initialNavigation = 'orbit', framing, quality }, ref) {
   const viewerRef = useRef<SplatViewerHandle | null>(null);
-  const rootRef = useRef<HTMLDivElement | null>(null);
-  /** The WebGPU scene canvas: the liquid glass refracts it live. */
-  const [sceneCanvas, setSceneCanvas] = useState<HTMLCanvasElement | null>(null);
   const viewerWaitersRef = useRef<Array<{ backend: RenderBackend; resolve: (h: SplatViewerHandle) => void }>>([]);
   const activeObjectUrlRef = useRef<string | null>(null);
   const webgpuAvailableRef = useRef(false);
@@ -366,8 +362,6 @@ const Home = forwardRef<SplatViewerRef, SplatViewerProps>(function Home({ showUI
   }, []);
 
   const handleLoadStart = useCallback(() => {
-    // The renderer has configured its WebGPU context by now: the liquid glass can refract it live.
-    setSceneCanvas(viewerRef.current?.backend === 'webgpu' ? rootRef.current?.querySelector<HTMLCanvasElement>('main canvas') ?? null : null);
     setIsLoading(true);
     setHasScene(true);
     setProgressiveState({ percent: 0, percentLabel: '0%', status: 'downloading', message: 'Iniciando descarga...' });
@@ -553,272 +547,266 @@ const Home = forwardRef<SplatViewerRef, SplatViewerProps>(function Home({ showUI
   };
 
   return (
-    <LiquidGlassProvider enabled={showUI} pageRef={rootRef} canvas={sceneCanvas}>
-      <div className="msv" ref={rootRef}>
+    <div className="msv">
 
-        {showUI && (
-          <>
-            {/* ── Sidebar (desktop) ── */}
-            {!isMobile && sidebarOpen && (
-              <Sidebar
-                models={DEMO_SCENES}
-                activeId={activeScene}
-                onSelectModel={handleDemoSelect}
-                onUpload={() => setShowUploader(true)}
-                isOpen={sidebarOpen}
-                setIsOpen={setSidebarOpen}
-              />
-            )}
+      {showUI && (
+        <>
+          {/* ── Sidebar (desktop) ── */}
+          {!isMobile && sidebarOpen && (
+            <Sidebar
+              models={DEMO_SCENES}
+              activeId={activeScene}
+              onSelectModel={handleDemoSelect}
+              onUpload={() => setShowUploader(true)}
+              isOpen={sidebarOpen}
+              setIsOpen={setSidebarOpen}
+            />
+          )}
 
-            {/* ── Sidebar Mobile Sheet (hidden while the settings panel uses the bottom of the screen) ── */}
-            {isMobile && !advancedOpen && (
-              <SidebarMobileSheet
-                sheetState={mobileSheetState}
-                onSheetStateChange={setMobileSheetState}
-                models={DEMO_SCENES}
-                activeId={activeScene}
-                onSelectModel={handleDemoSelect}
-                onUpload={() => setShowUploader(true)}
-                searchPlaceholder="Buscar escenas…"
-              />
-            )}
+          {/* ── Sidebar Mobile Sheet (hidden while the settings panel uses the bottom of the screen) ── */}
+          {isMobile && !advancedOpen && (
+            <SidebarMobileSheet
+              sheetState={mobileSheetState}
+              onSheetStateChange={setMobileSheetState}
+              models={DEMO_SCENES}
+              activeId={activeScene}
+              onSelectModel={handleDemoSelect}
+              onUpload={() => setShowUploader(true)}
+              searchPlaceholder="Buscar escenas…"
+            />
+          )}
 
-            {/* ── Uploader Dialog ── */}
-            <Dialog open={showUploader} onOpenChange={setShowUploader}>
-              <DialogContent className="glass glass-strong panel isolate !rounded-[var(--ui-panel-radius)] text-neutral-900 dark:text-white max-w-2xl max-h-[90vh] overflow-y-auto p-6">
-                <GlassBackdrop radius={28} />
-                <DialogHeader>
-                  <DialogTitle className="text-neutral-900 dark:text-white font-semibold tracking-tight">Cargar escena</DialogTitle>
-                </DialogHeader>
-                <SceneUploader onLoadFile={handleLoadFile} onLoadURL={handleLoadURL} isLoading={isLoading} />
-              </DialogContent>
-            </Dialog>
+          {/* ── Uploader Dialog ── */}
+          <Dialog open={showUploader} onOpenChange={setShowUploader}>
+            <DialogContent className="glass glass-strong panel isolate !rounded-[var(--ui-panel-radius)] text-neutral-900 dark:text-white max-w-2xl max-h-[90vh] overflow-y-auto p-6">
+              <DialogHeader>
+                <DialogTitle className="text-neutral-900 dark:text-white font-semibold tracking-tight">Cargar escena</DialogTitle>
+              </DialogHeader>
+              <SceneUploader onLoadFile={handleLoadFile} onLoadURL={handleLoadURL} isLoading={isLoading} />
+            </DialogContent>
+          </Dialog>
 
-            {/* ── Open sidebar button (desktop only) ── */}
-            {!isMobile && !sidebarOpen && (
-              <div className="absolute top-6 left-6 z-[300] glass dock isolate">
-                <GlassBackdrop radius={28} />
-                <button onClick={() => setSidebarOpen(true)} className="pill-btn" title="Mostrar panel" aria-label="Mostrar panel">
-                  <ChevronRight className="w-5 h-5" />
-                </button>
-              </div>
-            )}
-          </>
+          {/* ── Open sidebar button (desktop only) ── */}
+          {!isMobile && !sidebarOpen && (
+            <div className="absolute top-6 left-6 z-[300] glass dock isolate">
+              <button onClick={() => setSidebarOpen(true)} className="pill-btn" title="Mostrar panel" aria-label="Mostrar panel">
+                <ChevronRight className="w-5 h-5" />
+              </button>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* ── Main Viewer ── */}
+      <main className="absolute inset-0">
+        {backend === 'webgpu' && (
+          <WebGPUSplatViewer ref={attachViewer} {...viewerProps} onUnsupported={handleWebGPUUnsupported} />
+        )}
+        {backend === 'webgl' && (
+          <Suspense fallback={null}>
+            <GaussianSplatViewer ref={attachViewer} {...viewerProps} />
+          </Suspense>
         )}
 
-        {/* ── Main Viewer ── */}
-        <main className="absolute inset-0">
-          {backend === 'webgpu' && (
-            <WebGPUSplatViewer ref={attachViewer} {...viewerProps} onUnsupported={handleWebGPUUnsupported} />
-          )}
-          {backend === 'webgl' && (
-            <Suspense fallback={null}>
-              <GaussianSplatViewer ref={attachViewer} {...viewerProps} />
-            </Suspense>
-          )}
-
-          <ProgressiveLoader state={progressiveState} compact={!showUI} />
-          {showUI && (
-            <>
-              <InfoPanel info={sceneInfo} visible={infoVisible} onToggle={() => setInfoVisible((v) => !v)} />
-              {navigationOpen && backend === 'webgpu' && (
-                <NavigationPanel settings={navigation} onChange={applyNavigation} onClose={() => setNavigationOpen(false)} />
-              )}
-              <PerformanceBenchmarkPanel info={benchmarkInfo} visible={benchmarkVisible} />
-            </>
-          )}
-        </main>
-
+        <ProgressiveLoader state={progressiveState} compact={!showUI} />
         {showUI && (
           <>
-            {!hasScene && !activeScene && (
-              <section className="absolute inset-0 z-[150] flex items-center justify-center p-4 md:p-8 pointer-events-none">
-                <div className="glass glass-strong w-full max-w-3xl max-h-[78vh] rounded-[32px] p-5 md:p-7 flex flex-col gap-5 isolate pointer-events-auto">
-                  <GlassBackdrop radius={32} />
-                  <header className="relative text-center">
-                    <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-black/[0.05] dark:bg-white/[0.10] flex items-center justify-center">
-                      <Box className="w-6 h-6 text-neutral-800 dark:text-white" />
-                    </div>
-                    <h1 className="text-xl md:text-2xl font-semibold tracking-tight text-neutral-900 dark:text-white">
-                      Selecciona tu modelo
-                    </h1>
-                    <p className="mt-1 text-sm text-neutral-700 dark:text-white/75">
-                      Elige una escena para comenzar a explorarla.
-                    </p>
-                  </header>
+            <InfoPanel info={sceneInfo} visible={infoVisible} onToggle={() => setInfoVisible((v) => !v)} />
+            {navigationOpen && backend === 'webgpu' && (
+              <NavigationPanel settings={navigation} onChange={applyNavigation} onClose={() => setNavigationOpen(false)} />
+            )}
+            <PerformanceBenchmarkPanel info={benchmarkInfo} visible={benchmarkVisible} />
+          </>
+        )}
+      </main>
 
-                  <div className="relative grid grid-cols-1 sm:grid-cols-2 gap-2 overflow-y-auto min-h-0">
-                    {DEMO_SCENES.map((scene, index) => (
-                      <button
-                        key={scene.name}
-                        type="button"
-                        disabled={backend === 'detecting' || isLoading}
-                        onClick={() => void handleDemoSelect(scene.name)}
-                        className="flex items-center gap-3 p-3 rounded-2xl border border-black/[0.08] dark:border-white/[0.14] bg-black/[0.03] dark:bg-white/[0.04] text-left hover:bg-black/[0.07] dark:hover:bg-white/[0.10] disabled:opacity-50 disabled:cursor-wait transition-colors"
-                      >
-                        <span className="w-9 h-9 shrink-0 rounded-full bg-black/[0.06] dark:bg-white/[0.10] flex items-center justify-center text-xs font-semibold tabular-nums text-neutral-800 dark:text-white/85">
-                          {String(index + 1).padStart(2, '0')}
-                        </span>
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-sm font-medium text-neutral-900 dark:text-white">
-                            {scene.name}
-                          </span>
-                          <span className="block text-[10px] uppercase tracking-wider text-neutral-600 dark:text-white/60">
-                            Modelo splat
-                          </span>
-                        </span>
-                        <ChevronRight className="w-4 h-4 shrink-0 text-neutral-600 dark:text-white/60" />
-                      </button>
-                    ))}
+      {showUI && (
+        <>
+          {!hasScene && !activeScene && (
+            <section className="absolute inset-0 z-[150] flex items-center justify-center p-4 md:p-8 pointer-events-none">
+              <div className="glass glass-strong w-full max-w-3xl max-h-[78vh] rounded-[32px] p-5 md:p-7 flex flex-col gap-5 isolate pointer-events-auto">
+                <header className="relative text-center">
+                  <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-black/[0.05] dark:bg-white/[0.10] flex items-center justify-center">
+                    <Box className="w-6 h-6 text-neutral-800 dark:text-white" />
                   </div>
+                  <h1 className="text-xl md:text-2xl font-semibold tracking-tight text-neutral-900 dark:text-white">
+                    Selecciona tu modelo
+                  </h1>
+                  <p className="mt-1 text-sm text-neutral-700 dark:text-white/75">
+                    Elige una escena para comenzar a explorarla.
+                  </p>
+                </header>
 
-                  <button
-                    type="button"
-                    disabled={backend === 'detecting' || isLoading}
-                    onClick={() => setShowUploader(true)}
-                    className="relative flex items-center justify-center gap-2 h-11 shrink-0 rounded-full bg-neutral-900 text-white hover:bg-neutral-800 dark:bg-white dark:text-black dark:hover:bg-white/90 disabled:opacity-50 transition-colors"
-                  >
-                    <Upload className="w-4 h-4" />
-                    <span className="text-xs font-semibold tracking-wider uppercase">Abrir archivo o URL</span>
-                  </button>
+                <div className="relative grid grid-cols-1 sm:grid-cols-2 gap-2 overflow-y-auto min-h-0">
+                  {DEMO_SCENES.map((scene, index) => (
+                    <button
+                      key={scene.name}
+                      type="button"
+                      disabled={backend === 'detecting' || isLoading}
+                      onClick={() => void handleDemoSelect(scene.name)}
+                      className="flex items-center gap-3 p-3 rounded-2xl border border-black/[0.08] dark:border-white/[0.14] bg-black/[0.03] dark:bg-white/[0.04] text-left hover:bg-black/[0.07] dark:hover:bg-white/[0.10] disabled:opacity-50 disabled:cursor-wait transition-colors"
+                    >
+                      <span className="w-9 h-9 shrink-0 rounded-full bg-black/[0.06] dark:bg-white/[0.10] flex items-center justify-center text-xs font-semibold tabular-nums text-neutral-800 dark:text-white/85">
+                        {String(index + 1).padStart(2, '0')}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-medium text-neutral-900 dark:text-white">
+                          {scene.name}
+                        </span>
+                        <span className="block text-[10px] uppercase tracking-wider text-neutral-600 dark:text-white/60">
+                          Modelo splat
+                        </span>
+                      </span>
+                      <ChevronRight className="w-4 h-4 shrink-0 text-neutral-600 dark:text-white/60" />
+                    </button>
+                  ))}
                 </div>
-              </section>
+
+                <button
+                  type="button"
+                  disabled={backend === 'detecting' || isLoading}
+                  onClick={() => setShowUploader(true)}
+                  className="relative flex items-center justify-center gap-2 h-11 shrink-0 rounded-full bg-neutral-900 text-white hover:bg-neutral-800 dark:bg-white dark:text-black dark:hover:bg-white/90 disabled:opacity-50 transition-colors"
+                >
+                  <Upload className="w-4 h-4" />
+                  <span className="text-xs font-semibold tracking-wider uppercase">Abrir archivo o URL</span>
+                </button>
+              </div>
+            </section>
+          )}
+
+          {/* ── Right-side dock ── */}
+          <nav
+            aria-label="Herramientas del visor"
+            className="absolute top-4 right-4 md:top-6 md:right-6 z-[25000] glass dock flex-col items-center isolate"
+          >
+            <button
+              className="pill-btn"
+              onClick={toggleTheme}
+              title={theme === 'dark' ? 'Modo claro' : 'Modo oscuro'}
+              aria-label={theme === 'dark' ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'}
+            >
+              {theme === 'dark' ? <Sun className="w-4 h-4" strokeWidth={1.5} /> : <Moon className="w-4 h-4" strokeWidth={1.5} />}
+            </button>
+            <button className="pill-btn" onClick={handleResetCamera} title="Enfocar escena (0)" aria-label="Enfocar escena">
+              <Crosshair className="w-4 h-4" />
+            </button>
+            <button
+              className="pill-btn"
+              onClick={handleTogglePointCloud}
+              title={pointCloudMode ? 'Modo splats' : 'Modo puntos'}
+              aria-label="Alternar modo puntos"
+              aria-pressed={pointCloudMode}
+            >
+              {pointCloudMode ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+            </button>
+            <button
+              className="pill-btn"
+              onClick={() => setAdvancedOpen((v) => !v)}
+              title="Controles avanzados"
+              aria-label="Controles avanzados"
+              aria-pressed={advancedOpen}
+            >
+              <SlidersHorizontal className="w-4 h-4" />
+            </button>
+            {backend !== 'detecting' && (
+              <button
+                className="pill-btn"
+                onClick={() => {
+                  const next = !editorView;
+                  setEditorView(next);
+                  viewerRef.current?.setEditorViewVisible(next);
+                }}
+                title="Vista editor: cámara, frustum y minimapa (clic para navegar)"
+                aria-label="Modo editor"
+                aria-pressed={editorView}
+              >
+                <Camera className="w-4 h-4" />
+              </button>
             )}
 
-            {/* ── Right-side dock ── */}
-            <nav
-              aria-label="Herramientas del visor"
-              className="absolute top-4 right-4 md:top-6 md:right-6 z-[25000] glass dock flex-col items-center isolate"
-            >
-              <GlassBackdrop radius={28} />
-              <button
-                className="pill-btn"
-                onClick={toggleTheme}
-                title={theme === 'dark' ? 'Modo claro' : 'Modo oscuro'}
-                aria-label={theme === 'dark' ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'}
-              >
-                {theme === 'dark' ? <Sun className="w-4 h-4" strokeWidth={1.5} /> : <Moon className="w-4 h-4" strokeWidth={1.5} />}
-              </button>
-              <button className="pill-btn" onClick={handleResetCamera} title="Enfocar escena (0)" aria-label="Enfocar escena">
-                <Crosshair className="w-4 h-4" />
-              </button>
-              <button
-                className="pill-btn"
-                onClick={handleTogglePointCloud}
-                title={pointCloudMode ? 'Modo splats' : 'Modo puntos'}
-                aria-label="Alternar modo puntos"
-                aria-pressed={pointCloudMode}
-              >
-                {pointCloudMode ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
-              </button>
-              <button
-                className="pill-btn"
-                onClick={() => setAdvancedOpen((v) => !v)}
-                title="Controles avanzados"
-                aria-label="Controles avanzados"
-                aria-pressed={advancedOpen}
-              >
-                <SlidersHorizontal className="w-4 h-4" />
-              </button>
-              {backend !== 'detecting' && (
-                <button
-                  className="pill-btn"
-                  onClick={() => {
-                    const next = !editorView;
-                    setEditorView(next);
-                    viewerRef.current?.setEditorViewVisible(next);
-                  }}
-                  title="Vista editor: cámara, frustum y minimapa (clic para navegar)"
-                  aria-label="Modo editor"
-                  aria-pressed={editorView}
-                >
-                  <Camera className="w-4 h-4" />
-                </button>
-              )}
+            <div className="dock-divider my-1" />
 
-              <div className="dock-divider my-1" />
-
-              {backend === 'webgpu' && (
-                <button
-                  className="pill-btn"
-                  onClick={() => {
-                    const next = !navigationOpen;
-                    setNavigationOpen(next);
-                    if (next) {
-                      setBenchmarkVisible(false);
-                      setInfoVisible(false);
-                    }
-                  }}
-                  title="Navegación (V cambia de modo)"
-                  aria-label="Navegación"
-                  aria-pressed={navigationOpen}
-                >
-                  <Compass className="w-4 h-4" />
-                </button>
-              )}
+            {backend === 'webgpu' && (
               <button
                 className="pill-btn"
                 onClick={() => {
-                  const next = !benchmarkVisible;
-                  setBenchmarkVisible(next);
-                  if (next) {
-                    setInfoVisible(false);
-                    setNavigationOpen(false);
-                  }
-                }}
-                title="Benchmark 2026"
-                aria-label="Benchmark"
-                aria-pressed={benchmarkVisible}
-              >
-                <Activity className="w-4 h-4" />
-              </button>
-              <button
-                className="pill-btn"
-                onClick={() => {
-                  const next = !infoVisible;
-                  setInfoVisible(next);
+                  const next = !navigationOpen;
+                  setNavigationOpen(next);
                   if (next) {
                     setBenchmarkVisible(false);
-                    setNavigationOpen(false);
+                    setInfoVisible(false);
                   }
                 }}
-                title="Información"
-                aria-label="Información de la escena"
-                aria-pressed={infoVisible}
+                title="Navegación (V cambia de modo)"
+                aria-label="Navegación"
+                aria-pressed={navigationOpen}
               >
-                <Info className="w-4 h-4" />
+                <Compass className="w-4 h-4" />
               </button>
-
-              {hasScene && (
-                <>
-                  <div className="dock-divider my-1" />
-                  <button className="pill-btn pill-btn--danger" onClick={handleRemoveScene} title="Eliminar escena" aria-label="Eliminar escena">
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </>
-              )}
-            </nav>
-
-            {/* ── Editor view frame: matches the GPU picture-in-picture rect (30%, min 120px, 12px margin) ── */}
-            {editorView && (
-              <div className="absolute bottom-3 right-3 w-[30%] h-[30%] min-w-[120px] min-h-[120px] pointer-events-none border border-cyan-600 dark:border-cyan-300/60 rounded-[4px] z-[200]">
-                <span className="absolute -top-8 right-0 glass rounded-full px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-cyan-900 dark:text-cyan-200 whitespace-nowrap">
-                  {backend === 'webgpu' ? 'Vista editor · clic para navegar' : 'Vista editor'}
-                </span>
-              </div>
             )}
+            <button
+              className="pill-btn"
+              onClick={() => {
+                const next = !benchmarkVisible;
+                setBenchmarkVisible(next);
+                if (next) {
+                  setInfoVisible(false);
+                  setNavigationOpen(false);
+                }
+              }}
+              title="Benchmark 2026"
+              aria-label="Benchmark"
+              aria-pressed={benchmarkVisible}
+            >
+              <Activity className="w-4 h-4" />
+            </button>
+            <button
+              className="pill-btn"
+              onClick={() => {
+                const next = !infoVisible;
+                setInfoVisible(next);
+                if (next) {
+                  setBenchmarkVisible(false);
+                  setNavigationOpen(false);
+                }
+              }}
+              title="Información"
+              aria-label="Información de la escena"
+              aria-pressed={infoVisible}
+            >
+              <Info className="w-4 h-4" />
+            </button>
 
-            <AdvancedControlsPanel
-              viewerRef={viewerRef}
-              visible={advancedOpen}
-              onClose={() => setAdvancedOpen(false)}
-              sceneLight={sceneLight}
-              onToggleSceneBackground={() => setSceneBgOverride(sceneLight ? 'dark' : 'light')}
-            />
-          </>
-        )}
-      </div>
-    </LiquidGlassProvider>
+            {hasScene && (
+              <>
+                <div className="dock-divider my-1" />
+                <button className="pill-btn pill-btn--danger" onClick={handleRemoveScene} title="Eliminar escena" aria-label="Eliminar escena">
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </>
+            )}
+          </nav>
+
+          {/* ── Editor view frame: matches the GPU picture-in-picture rect (30%, min 120px, 12px margin) ── */}
+          {editorView && (
+            <div className="absolute bottom-3 right-3 w-[30%] h-[30%] min-w-[120px] min-h-[120px] pointer-events-none border border-cyan-600 dark:border-cyan-300/60 rounded-[4px] z-[200]">
+              <span className="absolute -top-8 right-0 glass rounded-full px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-cyan-900 dark:text-cyan-200 whitespace-nowrap">
+                {backend === 'webgpu' ? 'Vista editor · clic para navegar' : 'Vista editor'}
+              </span>
+            </div>
+          )}
+
+          <AdvancedControlsPanel
+            viewerRef={viewerRef}
+            visible={advancedOpen}
+            onClose={() => setAdvancedOpen(false)}
+            sceneLight={sceneLight}
+            onToggleSceneBackground={() => setSceneBgOverride(sceneLight ? 'dark' : 'light')}
+          />
+        </>
+      )}
+    </div>
   );
 });
 

@@ -1,7 +1,6 @@
 import React from 'react';
 import { X, Camera, Target, ArrowUp, Zap, Clock, Layers, Grid3X3, Maximize2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { GlassBackdrop } from '@/components/LiquidGlass';
 
 export interface SceneInfo {
   splatCount: number;
@@ -29,7 +28,6 @@ const InfoPanel: React.FC<InfoPanelProps> = ({ info, visible, onToggle }) => {
   if (!info) {
     return (
       <div className="absolute top-4 right-[5.5rem] md:top-6 md:right-[6.5rem] z-40 glass panel isolate text-[#46464b] dark:text-white/85 text-sm min-w-[280px]">
-        <GlassBackdrop radius={28} />
         <div className="flex items-center justify-between mb-2 pl-2">
           <span className="font-semibold text-neutral-800 dark:text-white/85">Escena</span>
           <Button onClick={onToggle} variant="ghost" size="icon" className="h-8 w-8 rounded-full text-[#46464b] dark:text-white/85 hover:text-neutral-900 dark:hover:text-white hover:bg-black/[0.06] dark:hover:bg-black/[0.14]">
@@ -45,7 +43,6 @@ const InfoPanel: React.FC<InfoPanelProps> = ({ info, visible, onToggle }) => {
 
   return (
     <div className="absolute top-4 right-[5.5rem] md:top-6 md:right-[6.5rem] z-40 glass panel isolate text-neutral-800 dark:text-white text-sm min-w-[280px]">
-      <GlassBackdrop radius={28} />
       <div className="flex items-center justify-between mb-2 pl-2">
         <span className="font-semibold text-neutral-900 dark:text-white flex items-center gap-2">
           <Grid3X3 className="w-4 h-4 text-sky-900 dark:text-sky-100" />

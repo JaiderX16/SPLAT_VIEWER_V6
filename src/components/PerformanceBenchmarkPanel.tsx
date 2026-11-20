@@ -1,5 +1,4 @@
 import type { ReactNode } from 'react';
-import { GlassBackdrop } from '@/components/LiquidGlass';
 import { Activity, Cpu, Gauge, Layers3, MonitorSmartphone, Workflow, Zap } from 'lucide-react';
 import type { BenchmarkScore, BenchmarkStatus } from '@/lib/performanceBenchmark';
 import { formatCompactNumber } from '@/lib/performanceBenchmark';
@@ -98,7 +97,6 @@ export default function PerformanceBenchmarkPanel({ info, visible }: Performance
       aria-label="Benchmark de rendimiento Web 3D 2026"
       className="absolute left-3 right-[5.5rem] top-4 z-[240] glass panel isolate text-neutral-900 dark:text-white md:left-auto md:top-6 md:right-[6.5rem] md:w-[360px]"
     >
-      <GlassBackdrop radius={28} />
       <div className="mb-3 flex items-start justify-between gap-3 px-2 pt-1">
         <div className="min-w-0">
           <div className="flex items-center gap-2">

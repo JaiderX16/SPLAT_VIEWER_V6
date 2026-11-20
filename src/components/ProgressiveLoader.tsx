@@ -1,7 +1,6 @@
 import React from 'react';
 import { Progress } from '@/components/ui/progress';
 import { Loader2, Download, CheckCircle2, AlertCircle } from 'lucide-react';
-import { GlassBackdrop } from '@/components/LiquidGlass';
 
 export interface ProgressiveLoadState {
   percent: number;
@@ -58,7 +57,6 @@ const ProgressiveLoader: React.FC<ProgressiveLoaderProps> = ({ state, compact = 
   return (
     <div className="absolute inset-x-0 bottom-44 md:bottom-24 z-50 flex items-center justify-center pointer-events-none" role="status" aria-live="polite">
       <div className="glass relative isolate flex items-center gap-3 h-12 pl-4 pr-5 rounded-full pointer-events-auto min-w-[300px] max-w-[90vw]">
-        <GlassBackdrop radius={24} />
         {isError ? (
           <AlertCircle className="w-4 h-4 text-red-900 dark:text-red-100 shrink-0" />
         ) : isDone ? (

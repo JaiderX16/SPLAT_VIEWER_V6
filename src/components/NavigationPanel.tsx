@@ -1,6 +1,5 @@
 import { Compass, DoorOpen, Footprints, Orbit, Plane, ScanEye, Smartphone, X, type LucideIcon } from 'lucide-react';
 import type { NavigationMode, NavigationSettings } from '@/lib/viewerHandle';
-import { GlassBackdrop } from '@/components/LiquidGlass';
 
 type Hint = [input: string, action: string];
 
@@ -153,7 +152,6 @@ export default function NavigationPanel({ settings, onChange, onClose }: Navigat
       // pad 12 + list row r28 = 40
       className="absolute top-4 right-[5.5rem] md:top-6 md:right-[6.5rem] z-40 glass isolate rounded-[40px] p-3 w-[min(340px,calc(100vw-7rem))] max-h-[calc(100%-2rem)] overflow-y-auto"
     >
-      <GlassBackdrop radius={40} />
       <div className="flex items-center justify-between mb-2 pl-2">
         <span className="flex items-center gap-2 text-sm font-semibold text-neutral-900 dark:text-white">
           <Compass className="w-4 h-4 text-sky-900 dark:text-sky-100" />

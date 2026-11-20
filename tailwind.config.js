@@ -4,8 +4,7 @@ module.exports = {
   important: '.msv',
   // Library builds are embedded in a page that already ships Tailwind's preflight.
   corePlugins: { preflight: process.env.SPLAT_LIB !== '1' },
-  // The liquid-glass components' own classes are generated here too, scoped to .msv like the rest.
-  content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}', './node_modules/@memoria-labs/liquid-glass/lib/index.js'],
+  content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
   theme: {
     extend: {
       colors: {
