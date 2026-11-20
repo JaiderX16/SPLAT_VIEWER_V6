@@ -43,13 +43,15 @@ import {
   Compass,
   Sun,
   Moon,
+  Box,
+  Upload,
 } from 'lucide-react';
 
 // The WebGL fallback (three.js + GaussianSplats3D, ~1 MB) is only downloaded
 // when WebGPU is unavailable or a non-.splat format is opened.
 const GaussianSplatViewer = lazy(() => import('@/components/GaussianSplatViewer'));
 
-// Escena local (carpeta model/), la que App abre por defecto.
+// Escena local (carpeta model/), disponible en la biblioteca.
 export const DEFAULT_SCENE_URL = 'model/scene.splat';
 
 const DEMO_SCENES: Array<{ name: string; url: string; format: LoadOptions['format'] }> = [
@@ -111,6 +113,11 @@ const DEMO_SCENES: Array<{ name: string; url: string; format: LoadOptions['forma
   {
     name: 'parque-constitucion',
     url: 'https://huggingface.co/datasets/JaiderX16/MemorIA/resolve/main/constitucion.splat',
+    format: 'splat',
+  },
+  {
+    name: 'Oficina',
+    url: 'https://huggingface.co/datasets/JaiderX16/MemorIA/resolve/main/oficina.splat',
     format: 'splat',
   },
 ];
@@ -378,6 +385,7 @@ const Home = forwardRef<SplatViewerRef, SplatViewerProps>(function Home({ showUI
   const handleError = useCallback((error: Error) => {
     console.error('Load error:', error);
     setIsLoading(false);
+    setActiveScene('');
     setBenchmarkInfo(null);
     setProgressiveState({
       percent: 0,
@@ -623,6 +631,60 @@ const Home = forwardRef<SplatViewerRef, SplatViewerProps>(function Home({ showUI
 
         {showUI && (
           <>
+            {!hasScene && !activeScene && (
+              <section className="absolute inset-0 z-[150] flex items-center justify-center p-4 md:p-8 pointer-events-none">
+                <div className="glass glass-strong w-full max-w-3xl max-h-[78vh] rounded-[32px] p-5 md:p-7 flex flex-col gap-5 isolate pointer-events-auto">
+                  <GlassBackdrop radius={32} />
+                  <header className="relative text-center">
+                    <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-black/[0.05] dark:bg-white/[0.10] flex items-center justify-center">
+                      <Box className="w-6 h-6 text-neutral-800 dark:text-white" />
+                    </div>
+                    <h1 className="text-xl md:text-2xl font-semibold tracking-tight text-neutral-900 dark:text-white">
+                      Selecciona tu modelo
+                    </h1>
+                    <p className="mt-1 text-sm text-neutral-700 dark:text-white/75">
+                      Elige una escena para comenzar a explorarla.
+                    </p>
+                  </header>
+
+                  <div className="relative grid grid-cols-1 sm:grid-cols-2 gap-2 overflow-y-auto min-h-0">
+                    {DEMO_SCENES.map((scene, index) => (
+                      <button
+                        key={scene.name}
+                        type="button"
+                        disabled={backend === 'detecting' || isLoading}
+                        onClick={() => void handleDemoSelect(scene.name)}
+                        className="flex items-center gap-3 p-3 rounded-2xl border border-black/[0.08] dark:border-white/[0.14] bg-black/[0.03] dark:bg-white/[0.04] text-left hover:bg-black/[0.07] dark:hover:bg-white/[0.10] disabled:opacity-50 disabled:cursor-wait transition-colors"
+                      >
+                        <span className="w-9 h-9 shrink-0 rounded-full bg-black/[0.06] dark:bg-white/[0.10] flex items-center justify-center text-xs font-semibold tabular-nums text-neutral-800 dark:text-white/85">
+                          {String(index + 1).padStart(2, '0')}
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-medium text-neutral-900 dark:text-white">
+                            {scene.name}
+                          </span>
+                          <span className="block text-[10px] uppercase tracking-wider text-neutral-600 dark:text-white/60">
+                            Modelo splat
+                          </span>
+                        </span>
+                        <ChevronRight className="w-4 h-4 shrink-0 text-neutral-600 dark:text-white/60" />
+                      </button>
+                    ))}
+                  </div>
+
+                  <button
+                    type="button"
+                    disabled={backend === 'detecting' || isLoading}
+                    onClick={() => setShowUploader(true)}
+                    className="relative flex items-center justify-center gap-2 h-11 shrink-0 rounded-full bg-neutral-900 text-white hover:bg-neutral-800 dark:bg-white dark:text-black dark:hover:bg-white/90 disabled:opacity-50 transition-colors"
+                  >
+                    <Upload className="w-4 h-4" />
+                    <span className="text-xs font-semibold tracking-wider uppercase">Abrir archivo o URL</span>
+                  </button>
+                </div>
+              </section>
+            )}
+
             {/* ── Right-side dock ── */}
             <nav
               aria-label="Herramientas del visor"
