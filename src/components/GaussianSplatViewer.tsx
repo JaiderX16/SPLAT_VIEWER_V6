@@ -33,8 +33,6 @@ const DAMPING = {
   ENABLED: true,
 };
 
-const WEBXR_CAMERA_UP: [number, number, number] = [0, 1, 0];
-
 const ANIMATION = {
   INTRO_DURATION: INTRO.DURATION_MS,
   INTRO_START_DISTANCE: INTRO.START_DISTANCE,
@@ -189,7 +187,7 @@ const GaussianSplatViewer = forwardRef<SplatViewerHandle, GaussianSplatViewerPro
       const initProps = initPropsRef.current;
       const viewer = new GaussianSplats3D.Viewer({
         rootElement: containerRef.current,
-        cameraUp: initProps.enableVR ? WEBXR_CAMERA_UP : initProps.cameraUp,
+        cameraUp: initProps.cameraUp,
         initialCameraPosition: initProps.initialCameraPosition,
         initialCameraLookAt: initProps.initialCameraLookAt,
         selfDrivenMode: true,
