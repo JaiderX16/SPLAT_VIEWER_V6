@@ -41,18 +41,50 @@ export interface FrustumTest {
   cap: number;
   scaleX: number;
   scaleY: number;
+  /** For `nodeReachesScreen`: length of the side planes' normals, and the largest off-axis stretch of a drawn splat. */
+  planeX: number;
+  planeY: number;
+  stretch: number;
 }
 
 export function frustumTest(f: FrustumParams): FrustumTest {
+  const inner = 1 + f.margin, cap = SHADER_NDC_LIMIT + f.margin;
   return {
     travel: f.travel,
     slideX: f.travel * f.scaleX,
     slideY: f.travel * f.scaleY,
-    inner: 1 + f.margin,
-    cap: SHADER_NDC_LIMIT + f.margin,
+    inner,
+    cap,
     scaleX: f.scaleX,
     scaleY: f.scaleY,
+    planeX: Math.sqrt(f.scaleX * f.scaleX + inner * inner),
+    planeY: Math.sqrt(f.scaleY * f.scaleY + inner * inner),
+    stretch: Math.sqrt(1 + (cap / f.scaleX) ** 2 + (cap / f.scaleY) ** 2),
   };
+}
+
+/**
+ * Whether any splat of a tree node can pass `reachesScreen`: its centres lie within `half` (world) of the clip position
+ * (cx, cy, cw) and its radii are at most `radius`. Not `reachesScreen` on a big radius: the shader's limit holds for one
+ * centre only, and a big sphere near the camera projects larger than radius / depth. Divided by cw, reachesScreen keeps
+ * a splat when |c| − inner·cw ≤ scale·(travel + FOOTPRINT·radius·stretch) + travel·|ndc|; moving to any of the node's
+ * centres changes |c| − inner·cw by at most half·planeX (the side planes' gradient), so if that fails at the node's centre
+ * by more, it fails for all of them.
+ */
+export function nodeReachesScreen(cx: number, cy: number, cw: number, half: number, radius: number, k: FrustumTest) {
+  const near = cw - half;
+  if (near <= k.travel) return true; // reachesScreen keeps every splat the camera may reach
+  // The widest NDC a kept centre can have (the shader limit plus the slide, loosest at the node's nearest depth), and
+  // the off-axis stretch there.
+  let capX = k.cap, capY = k.cap, stretch = k.stretch;
+  if (k.travel > 0) {
+    capX = (k.cap * near + k.slideX) / (near - k.travel);
+    capY = (k.cap * near + k.slideY) / (near - k.travel);
+    stretch = Math.sqrt(1 + (capX / k.scaleX) ** 2 + (capY / k.scaleY) ** 2);
+  }
+  const foot = radius * FOOTPRINT * stretch + k.travel;
+  const ax = cx < 0 ? -cx : cx, ay = cy < 0 ? -cy : cy;
+  return ax - k.inner * cw <= half * k.planeX + k.scaleX * foot + k.travel * capX && ay - k.inner * cw <= half * k.planeY + k.scaleY * foot + k.travel * capY;
 }
 
 /**

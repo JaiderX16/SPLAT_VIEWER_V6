@@ -15,7 +15,7 @@ struct Camera {
   focal: vec2f,
   // x: splat scale, y: point-cloud mode (0/1), z: orthographic (0/1), w: tan(fov/2) clamp
   params: vec4f,
-  // x: order entries are LOD-packed (0/1), y: LOD_MAX_SCALE, w: reveal active (0/1)
+  // w: reveal active (0/1); x, y, z unused
   lod: vec4f,
   // Reveal waves centred on the origin. x: point wave radius (splats beyond it are hidden),
   // y: splat wave radius (splats beyond it are dots), z: point fade-in band, w: grow band.
@@ -23,12 +23,12 @@ struct Camera {
 }
 
 @group(0) @binding(0) var<uniform> camera: Camera;
-// 2 × vec4u per splat — layout documented in protocol.ts.
-// `order` entries: splat index (low 24 bits) | LOD footprint scale (top 8 bits).
-@group(0) @binding(1) var<storage, read> splats: array<vec4u>;
+// 5 × u32 per splat — layout documented in pack.ts — and per block of 256 splats its box: min, extent.
+@group(0) @binding(1) var<storage, read> splats: array<u32>;
 @group(0) @binding(2) var<storage, read> order: array<u32>;
+@group(0) @binding(3) var<storage, read> blocks: array<vec4f>;
 
-const COVARIANCE_UNPACK: f32 = 0.25; // 1 / COVARIANCE_PACK_SCALE
+const SCALE_UNPACK: f32 = 1.0 / 64.0; // 1 / SCALE_PACK
 const MAX_AXIS_PX: f32 = 1024.0;
 // Half-axis of a dot (reveal and point-cloud mode), in px; the quad spans ±2 → ~1 px radius.
 const DOT_PX: f32 = 0.5;
@@ -53,15 +53,13 @@ fn culled() -> VertexOut {
 
 @vertex
 fn vs_main(@builtin(vertex_index) vertexIndex: u32, @builtin(instance_index) instanceIndex: u32) -> VertexOut {
-  let entry = order[instanceIndex];
-  let packed = camera.lod.x > 0.5;
-  let index = select(entry, entry & 0xFFFFFFu, packed);
-  // Thinned far splats are drawn larger so the covered area is preserved.
-  let lodScale = select(1.0, 1.0 + f32(entry >> 24u) / 255.0 * (camera.lod.y - 1.0), packed);
-  let a = splats[index * 2u];
-  let b = splats[index * 2u + 1u];
-
-  let center = vec3f(bitcast<f32>(a.x), bitcast<f32>(a.y), bitcast<f32>(a.z));
+  let index = order[instanceIndex];
+  let w0 = splats[index * 5u];
+  let w1 = splats[index * 5u + 1u];
+  let w2 = splats[index * 5u + 2u];
+  let block = (index >> 8u) * 2u;
+  let quantized = vec3f(f32(w0 & 0xFFFFu), f32(w0 >> 16u), f32(w1 & 0xFFFFu));
+  let center = blocks[block].xyz + blocks[block + 1u].xyz * quantized / 65535.0;
   let viewPos = camera.view * vec4f(center, 1.0);
   let clip = camera.proj * viewPos;
   let ortho = camera.params.z > 0.5;
@@ -76,7 +74,7 @@ fn vs_main(@builtin(vertex_index) vertexIndex: u32, @builtin(instance_index) ins
     return culled();
   }
 
-  let rgba = unpack4x8unorm(a.w);
+  let rgba = unpack4x8unorm(splats[index * 5u + 3u]);
   var major: vec2f;
   var minor: vec2f;
   var dotMix = 0.0;
@@ -95,15 +93,19 @@ fn vs_main(@builtin(vertex_index) vertexIndex: u32, @builtin(instance_index) ins
     major = vec2f(DOT_PX, 0.0);
     minor = vec2f(0.0, DOT_PX);
   } else {
-    let c0 = unpack2x16float(b.x); // c00, c01
-    let c1 = unpack2x16float(b.y); // c02, c11
-    let c2 = unpack2x16float(b.z); // c12, c22
-    let s = COVARIANCE_UNPACK * camera.params.x * camera.params.x;
-    let vrk = mat3x3f(
-      vec3f(c0.x, c0.y, c1.x),
-      vec3f(c0.y, c1.y, c2.x),
-      vec3f(c1.x, c2.x, c2.y),
-    ) * s;
+    // Σ = M Mᵀ with M = R · diag(σ): the quaternion's rotation, the axis scales (times the user's splat scale).
+    let sigma = vec3f(unpack2x16float(w1).y, unpack2x16float(w2)) * (SCALE_UNPACK * camera.params.x);
+    let q = normalize((unpack4x8unorm(splats[index * 5u + 4u]) * 255.0 - 128.0) / 128.0); // w, x, y, z
+    let qw = q.x;
+    let qx = q.y;
+    let qy = q.z;
+    let qz = q.w;
+    let m = mat3x3f(
+      vec3f(1.0 - 2.0 * (qy * qy + qz * qz), 2.0 * (qx * qy + qw * qz), 2.0 * (qx * qz - qw * qy)) * sigma.x,
+      vec3f(2.0 * (qx * qy - qw * qz), 1.0 - 2.0 * (qx * qx + qz * qz), 2.0 * (qy * qz + qw * qx)) * sigma.y,
+      vec3f(2.0 * (qx * qz + qw * qy), 2.0 * (qy * qz - qw * qx), 1.0 - 2.0 * (qx * qx + qy * qy)) * sigma.z,
+    );
+    let vrk = m * transpose(m);
 
     // Jacobian of the projection, in camera space (camera looks down −Z).
     var jac: mat3x3f;
@@ -145,8 +147,8 @@ fn vs_main(@builtin(vertex_index) vertexIndex: u32, @builtin(instance_index) ins
     let dv = vec2f(cb, lambda1 - ca);
     let dl = length(dv);
     let diag = select(vec2f(1.0, 0.0), dv / dl, dl > 1e-8);
-    major = min(sqrt(2.0 * lambda1) * lodScale, MAX_AXIS_PX) * diag;
-    minor = min(sqrt(2.0 * lambda2) * lodScale, MAX_AXIS_PX) * vec2f(diag.y, -diag.x);
+    major = min(sqrt(2.0 * lambda1), MAX_AXIS_PX) * diag;
+    minor = min(sqrt(2.0 * lambda2), MAX_AXIS_PX) * vec2f(diag.y, -diag.x);
     // Behind the splat wave front: grow from a dot into the full splat.
     major = mix(major, diag * DOT_PX, dotMix);
     minor = mix(minor, vec2f(diag.y, -diag.x) * DOT_PX, dotMix);

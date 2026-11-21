@@ -3,7 +3,6 @@ import type { Draw, Frame, Gpu, Surface } from 'vgpu';
 import splatShader from './splat.wgsl';
 import helpersShader from './helpers.wgsl';
 import overlayShader from './overlay.wgsl';
-import { LOD_MAX_SCALE } from './protocol';
 import { cameraRay, lookAt, multiply, perspective, vec3, type Ray, type Vec3 } from './math';
 
 /** Picture-in-picture layout; Home draws the matching CSS frame (30%, min 120px, 12px margin). */
@@ -30,7 +29,6 @@ export interface MainCameraState {
   splatScale: number;
   pointCloud: boolean;
   visibleCount: number;
-  lodPacked: boolean;
 }
 
 export interface PixelRect {
@@ -113,8 +111,8 @@ export class EditorView {
     });
   }
 
-  bindBuffers(splats: GPUBuffer, order: GPUBuffer) {
-    this.splatDraw.set({ splats, order });
+  bindBuffers(splats: GPUBuffer, order: GPUBuffer, blocks: GPUBuffer) {
+    this.splatDraw.set({ splats, order, blocks });
   }
 
   compile(surf: Surface) {
@@ -176,7 +174,7 @@ export class EditorView {
         viewport: [rect.width, rect.height],
         focal: [(this.proj[0] * rect.width) / 2, (this.proj[5] * rect.height) / 2],
         params: [main.splatScale, main.pointCloud ? 1 : 0, 0, Math.tan((OVERVIEW_FOV_DEG * Math.PI) / 360) * Math.max(1, this.aspect)],
-        lod: [main.lodPacked ? 1 : 0, LOD_MAX_SCALE, 0, 0],
+        lod: [0, 0, 0, 0],
         reveal: [0, 0, 1, 1], // unused: lod.w = 0 keeps the overview out of the load reveal
       },
     });

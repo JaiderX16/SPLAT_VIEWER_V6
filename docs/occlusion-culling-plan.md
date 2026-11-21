@@ -1,4 +1,4 @@
-# Visibilidad y cantidad de splats: oclusión por vóxeles, "Ocultar no visibles", poda y presupuesto
+# Visibilidad y cantidad de splats: oclusión por vóxeles, "Ocultar no visibles", poda, formato compacto y LOD
 
 Escena de referencia: `model/scene.splat` (interior, 4,68 M splats). Renderizador WebGPU (`vgpu` 0.6).
 
@@ -59,7 +59,9 @@ Los búferes se recortan al terminar la carga (`shrinkToFit` en el renderer y en
 | α < 8 (por defecto) | −30 %, 46 dB | −26 %, 47 dB |
 | α < 16 | −47 %, 37 dB | −45 %, 38 dB |
 
-### Presupuesto de splats por vista (`budget.ts`)
+### (Retirado, §12) Presupuesto de splats por vista adelgazando (`budget.ts`)
+Ahora el presupuesto fusiona splats con el LOD jerárquico (§12): misma cantidad, mejor imagen.
+
 "Máx." en el panel avanzado: 100 K (por defecto en móvil) · 300 K · 1 M (por defecto en escritorio) · Todos.
 El worker hace el frustum, histograma el tamaño en pantalla de los candidatos y sube el umbral del LOD hasta
 que el recuento esperado cabe; luego adelgaza (los más pequeños primero, elección estable por hash) y agranda
@@ -81,7 +83,7 @@ del orden) pesa más en móviles. Quitar primero los más transparentes se prob�
 ## Pruebas
 - `node src/lib/webgpu-splat/frustum.check.ts`: 157 K splats aleatorios contra el cuadrilátero exacto de
   `splat.wgsl`, con cámara quieta y movida (lateral, adelante, atrás): 0 splats con píxeles en pantalla descartados.
-- `node src/lib/webgpu-splat/budget.check.ts`: recuento a ±5 % del presupuesto, área conservada, suelo de 1/16.
+- `node src/lib/webgpu-splat/pack.check.ts` y `lod.check.ts`: formato de 20 bytes y árbol LOD (§12).
 - En el navegador: A/B de capturas y de tiempos de GPU con cada opción (tablas de arriba).
 
 ## 4. "Sin splats grandes": ocultar el ruido del escaneo (`noise.ts`)
@@ -322,3 +324,80 @@ todas (máx. 2/255) y moviéndose 25 cm, igual. Lo que cuesta: la oclusión dent
 oclusores cercanos y finos no son fiables con vóxeles de 4 cm); desde fuera oculta 23–59 % de lo que hay en pantalla
 (59 % pegado al muro exterior), antes 38–76 % con errores.
 
+## 12. Splats de 20 bytes y LOD jerárquico (fusionar lo lejano)
+**Formato** (`pack.ts`, `splat.wgsl`): 32 → 20 bytes por splat. Posición en 3 × 16 bits dentro de la caja de su bloque de
+256 splats (las cajas van en un búfer aparte de 32 bytes por bloque; error ≤ 0,2 mm en 25 m), escalas en half float
+(× 64, error ≤ 0,05 %), y rotación y color con los mismos bytes del archivo. El shader rehace Σ = R·S²·Rᵀ. Una
+transformación de escena (o un splat fusionado) se vuelve a escalas + rotación con Jacobi (`decompose`, error ≤ 1,6 %).
+
+**Árbol** (`lod.ts`, al terminar la carga): los splats ordenados por curva de Morton forman un octree con hojas de ≤ 16.
+Cada nodo tiene un splat fusionado que lo sustituye: misma masa (opacidad × área media), centro y color ponderados por
+masa y Σ = la de los hijos más su separación. En la sala: 0,80 M nodos para 3,38 M splats (+24 % de splats en la GPU).
+
+**Sort** (worker): recorre el árbol; un nodo fuera de pantalla, tapado o bajo el corte del suelo se salta entero, y uno
+cuyo splat fusionado mide menos de `minPx` px (radio 1σ) en pantalla se dibuja como ese único splat. Presets: Alta 0 px,
+Equilibrado 1 px (por defecto), Rendimiento 2 px. El presupuesto ("Máx.") ya no adelgaza: en la misma pasada cuenta
+cuánto dibujaría cada tamaño de fusión mayor (bins de 1/16 de octava) y recorta la lista al más pequeño que cabe; empieza
+cerca del tamaño del sort anterior y, si queda muy por debajo del presupuesto, repite desde el preset. El recuento es
+exacto (en desarrollo, el worker lo comprueba en cada sort).
+
+Calidad del LOD (frames exactos 1434×1158, frente al render sin LOD, sala):
+
+| Vista | Equilibrado (1 px) | Rendimiento (2 px) |
+|---|---|---|
+| Interior, hacia +x | −5 % splats, 49,1 dB, 0,23 % > 8/255 | −22 %, 43,8 dB, 0,88 % |
+| Interior, hacia −x | −10 %, 44,0 dB, 0,66 % | −33 %, 37,5 dB, 2,68 % |
+| Fuera, lejos | −52 %, 50,5 dB, 0,07 % | −76 %, 48,1 dB, 0,14 % |
+
+Antes (adelgazar, presets 1,25 / 2,5 px) frente a ahora, misma sesión del navegador (Intel Gen12), cada versión contra su
+render sin LOD:
+
+| Vista | Presupuesto 1 M (escritorio) | Presupuesto 100 K (móvil) |
+|---|---|---|
+| Interior, +x | 38,0 → 39,6 dB; GPU 29,8 → 28,4 ms | 22,6 → 25,6 dB (39 → 25 % de píxeles mal); 23,0 → 10,5 ms |
+| Interior, −x | 31,8 → 32,7 dB; 30,3 → 29,0 ms | 20,5 → 23,2 dB (53 → 29 %); 23,7 → 11,1 ms |
+| Fuera, lejos | 47,4 → 48,5 dB; 11,6 → 10,9 ms | 22,3 → 44,8 dB (28 → 0,4 %); 6,5 → 2,5 ms |
+
+Sin presupuesto, Equilibrado: interior −x 1,79 M splats a 39,6 dB → 2,01 M a 44,0 dB; fuera 1,63 M a 49,9 dB → 1,60 M a
+50,5 dB. Memoria de GPU: 116 → 93 MB (con los fusionados).
+
+Sort en el worker (node, mediana de 7, mismas poses, ms):
+
+| Ajuste | Interior +x | Interior −x | Fuera, lejos |
+|---|---|---|---|
+| Alta, sin presupuesto | igual (sin nada que fusionar se ordena splat a splat, como antes) | | |
+| Equilibrado | 128 → 122 | 152 → 159 | 160 → 106 |
+| Equilibrado + 1 M | 132 → 122 | 152 → 122 | 154 → 104 |
+| Equilibrado + 100 K | 107 → 24 | 127 → 21 | 120 → 13 |
+
+Lo que cuesta: la carga termina ~0,7 s después (árbol y empaquetado; los primeros splats salen igual de pronto); la GPU
+del render completo sube un 4–6 % (el vertex shader rehace Σ). Dentro de la sala la GPU baja poco con el LOD: manda el relleno de los splats cercanos.
+shortcut: los fusionados incluyen los splats de ruido, así que con "Sin splats grandes" un fusionado lejano conserva algo
+del color de un gigante.
+
+Pruebas: `node src/lib/webgpu-splat/pack.check.ts` (posición, escalas, rotación y color tras empaquetar; `decompose`) y
+`node src/lib/webgpu-splat/lod.check.ts` (cada splat aparece una sola vez en cualquier corte del árbol; el fusionado
+conserva centro, color, masa y dispersión).
+
+## 13. Huecos en los bordes con "Ocultar no visibles" (pruebas por nodo del árbol)
+Con el árbol del LOD (§12) el recorrido descartaba nodos enteros con las pruebas de un splat suelto, y en vertical (móvil)
+desaparecían trozos junto a los bordes de la pantalla, dejando ver manchas borrosas de detrás:
+
+1. **Fuera de pantalla**: "centro a más de 1,5 × el borde: no se dibuja" vale para un splat (el shader lo descarta), no
+   para un nodo de varios metros con parte de sus splats dentro. Tampoco radio / profundidad, que se queda corto para una
+   esfera grande cerca de la cámara. Ahora `nodeReachesScreen` (frustum.ts) mide la distancia del centro del nodo a cada
+   plano lateral del frustum (su gradiente acota cuánto cambia al moverse a cualquier splat del nodo), con el estiramiento
+   fuera del eje y el desplazamiento de la cámara.
+2. **Oclusión**: el nodo se juzgaba desde centro − 0,4 de su radio, no desde su splat más cercano. Ahora `nodeOccluded`
+   (occlusion.ts) parte de la profundidad más cercana posible y acota la huella de todos sus splats desde ahí.
+
+Sin nada que fusionar (Alta sin presupuesto) ya no se recorre el árbol: se ordena splat a splat como antes (era hasta un
+65 % más lento por el recorrido).
+
+Comprobado: en la sala sin LOD salen exactamente los mismos splats que antes del árbol (antes del arreglo faltaban hasta
+33 K en una vista); en la plaza, vista móvil 563×1218, 7 ángulos alrededor de la estatua: encendido frente a apagado
+52–59 dB (≤ 0,16 % de píxeles > 8/255, lo mismo que la oclusión de siempre) y Equilibrado frente a Alta 46–55 dB (≤ 0,17 %).
+Con el presupuesto de 100 K de los móviles la imagen se suaviza (26–35 dB frente a Alta; antes, en la sala, 20–23 dB).
+
+Pruebas: `frustum.check.ts` (17,8 K grupos de 1 cm a 6 m, quieta y moviéndose: ninguno descartado con un splat que se
+dibuja; la prueba de un splat descartaba 305) y `occlusion.check.ts` (7 K grupos ocultos, todos con cada splat oculto).

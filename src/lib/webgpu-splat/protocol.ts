@@ -1,24 +1,13 @@
 /**
- * Message protocol between the main thread and `splat.worker.ts`.
- *
- * GPU layout of one splat (8 × u32 = 32 bytes, read as two `vec4u` in WGSL):
- *   [0..2] position xyz (f32 bits)
- *   [3]    rgba8 color (r in the low byte → `unpack4x8unorm`)
- *   [4]    pack2x16float(c00, c01)
- *   [5]    pack2x16float(c02, c11)
- *   [6]    pack2x16float(c12, c22)
- *   [7]    unused (keeps 16-byte alignment)
- * The 3D covariance is stored pre-multiplied by COVARIANCE_PACK_SCALE so tiny
- * splats stay out of the fp16 subnormal range; the shader undoes it.
+ * Message protocol between the main thread and `splat.worker.ts`. The GPU layout of a splat (20 bytes,
+ * positions quantized per block of 256 splats) is in pack.ts. The LOD tree's merged splats follow the
+ * originals in the same buffer, from the first whole block after them.
  */
 import type { VoxelGridData } from './collision';
 import type { FrustumParams } from './frustum';
 
-export const SPLAT_WORDS = 8;
-export const SPLAT_BYTES = SPLAT_WORDS * 4;
 /** Size of one record in the antimatter15 `.splat` format. */
 export const SPLAT_FILE_RECORD_BYTES = 32;
-export const COVARIANCE_PACK_SCALE = 4;
 
 export interface SceneTransform {
   position?: [number, number, number];
@@ -65,18 +54,16 @@ export type MainToWorker =
     };
 
 /**
- * Distance LOD: splats whose projected radius is below `minPx` pixels are
- * thinned to a stable, hash-selected fraction (never below `minKeep`), and the
- * survivors are enlarged so the covered area stays the same.
+ * LOD (lod.ts): a tree node whose merged splat is under `minPx` pixels on screen is drawn as that one splat
+ * instead of the splats under it; a budget raises that size until what is drawn fits.
  */
 export interface LodParams {
   /** Pixels per world unit at depth 1 (perspective) or per world unit (orthographic). */
   focalPx: number;
   ortho: boolean;
-  /** 0 disables LOD. */
+  /** Merge size: radius (px) under which a node's merged splat stands in for it; 0 merges only for the budget. */
   minPx: number;
-  minKeep: number;
-  /** Most splats to keep (0 = no limit): the thinning threshold rises until the expected count fits. */
+  /** Most splats to draw (0 = no limit). */
   budget: number;
   /** Skip giant and needle splats (noise.ts). */
   hideNoise: boolean;
@@ -84,34 +71,28 @@ export interface LodParams {
   cutBelow: { axis: number; sign: number; floor: number; voxel: number } | null;
 }
 
-/** Largest footprint enlargement for thinned splats (must match the shader decode). */
-export const LOD_MAX_SCALE = 4;
-/** Order entries carry the splat index in the low 24 bits and the LOD scale in the top 8. */
-export const LOD_INDEX_BITS = 24;
 export const REVEAL_QUANTILE_STEPS = 128;
-export const LOD_MAX_PACKED_SPLATS = (1 << LOD_INDEX_BITS) - 1;
 
 export type WorkerToMain =
   /** `capacity` is an upper bound (file size / 32) or 0 when unknown. */
   | { type: 'begin'; capacity: number }
   | { type: 'progress'; loadedBytes: number; totalBytes: number }
-  /** Packed splats `[first, first + count)` ready to upload. */
   /**
-   * `revealQuantiles[i]`: distance from the origin within which `i / REVEAL_QUANTILE_STEPS`
-   * of the splats loaded so far lie, so the reveal waves can advance by splat count.
+   * Packed splats `[first, first + count)` ready to upload (pack.ts), `first` a whole block, with the boxes of
+   * their blocks. `revealQuantiles[i]`: distance from the origin within which `i / REVEAL_QUANTILE_STEPS` of
+   * the splats loaded so far lie, so the reveal waves can advance by splat count (absent for merged splats).
    */
-  | { type: 'chunk'; first: number; count: number; data: Uint32Array; revealQuantiles: Float32Array }
-  | { type: 'done'; count: number }
+  | { type: 'chunk'; first: number; count: number; data: Uint32Array; boxes: Float32Array; revealQuantiles?: Float32Array }
+  /** `count` splats in the scene; `total` GPU splats with the merged ones. */
+  | { type: 'done'; count: number; total: number }
   | {
       type: 'sorted';
       order: Uint32Array;
       visible: number;
       sortMs: number;
-      /** True when entries are LOD-packed (index | scale << 24). */
-      packed: boolean;
-      /** Splats skipped by distance LOD this sort. */
+      /** Splats saved by the LOD this sort: drawn as part of merged splats (while streaming: left out by the budget). */
       lodCulled: number;
-      /** Splats the loose margin would have kept that tight culling dropped (0 when it is off). */
+      /** Splats ahead of the camera that tight culling dropped, whole tree nodes at a time, as they cannot reach the screen (0 when it is off). */
       offscreen: number;
       /** In-view giant and needle splats skipped (0 when that is off). */
       noisy: number;

@@ -5,7 +5,7 @@
  * pasa `reachesScreen` con el radio que usa el worker, también si la cámara se ha movido `travel` desde el
  * sort. Ejecutar: node src/lib/webgpu-splat/frustum.check.ts
  */
-import { alphaExtent, frustumTest, reachesScreen, type FrustumParams } from './frustum.ts';
+import { alphaExtent, FOOTPRINT, frustumTest, nodeReachesScreen, reachesScreen, type FrustumParams } from './frustum.ts';
 import { lookAt, multiply, perspective, type Vec3 } from './math.ts';
 
 let seed = 3;
@@ -84,4 +84,50 @@ for (const [w, h] of [[1920, 1080], [390, 844]]) {
 console.log(`splats delante de la cámara ${total}, con píxeles en pantalla ${drawn}, descartados ${dropped}, descartados con píxeles en pantalla ${wrong}`);
 if (wrong > 0) throw new Error(`frustum.ts: ${wrong} splats visibles descartados`);
 if (dropped === 0) throw new Error('frustum.ts: no descartó nada; la prueba no es sensible');
+
+// Nodos del árbol LOD: nodeReachesScreen descarta un grupo solo si reachesScreen descarta cada uno de sus splats.
+// Grupos de 1 cm a 6 m alrededor de la cámara, también pegados a ella y a los bordes, con la cámara quieta y moviéndose.
+// Con reachesScreen sobre la esfera del grupo (lo que hacía el recorrido) sí se pierden grupos que se ven.
+let nodes = 0, culled = 0, nodeWrong = 0, oldWrong = 0;
+for (const [w, h] of [[1920, 1080], [390, 844]]) {
+  const proj = perspective((50 * Math.PI) / 180, w / h, 0.05, 1000, new Float32Array(16));
+  for (let cam = 0; cam < 8; cam++) {
+    const eye: Vec3 = [rand() * 4 - 2, rand() * 2 - 1, rand() * 4 - 2];
+    const target: Vec3 = [eye[0] + rand() * 2 - 1, eye[1] + rand() - 0.5, eye[2] + rand() * 2 - 1];
+    const view = lookAt(eye, target, [0, 1, 0], new Float32Array(16));
+    const vp = multiply(proj, view, new Float32Array(16));
+    const test = frustumTest({ margin: 0.05, travel: cam % 2 ? 0.15 : 0, scaleX: proj[0], scaleY: proj[5] });
+    const clip = (x: number, y: number, z: number) => [vp[0] * x + vp[4] * y + vp[8] * z + vp[12], vp[1] * x + vp[5] * y + vp[9] * z + vp[13], vp[3] * x + vp[7] * y + vp[11] * z + vp[15]];
+    for (let g = 0; g < 3000; g++) {
+      const size = 0.01 * 600 ** rand();
+      const c: Vec3 = [eye[0] + (rand() * 2 - 1) * 8, eye[1] + (rand() * 2 - 1) * 4, eye[2] + (rand() * 2 - 1) * 8];
+      const pts: number[][] = [];
+      let maxRadius = 0;
+      for (let i = 0; i < 16; i++) {
+        let dx, dy, dz;
+        do [dx, dy, dz] = [rand() * 2 - 1, rand() * 2 - 1, rand() * 2 - 1]; while (dx * dx + dy * dy + dz * dz > 1);
+        const radius = size * 0.2 * rand() ** 3, alpha = 1 + Math.floor(rand() * 255);
+        pts.push([c[0] + dx * size, c[1] + dy * size, c[2] + dz * size, radius, alpha]);
+        maxRadius = Math.max(maxRadius, radius);
+      }
+      // As the worker: the box of the centres, its centre and half diagonal; only nodes all ahead of the near plane.
+      const lo = [0, 1, 2].map((a) => Math.min(...pts.map((p) => p[a]))), hi = [0, 1, 2].map((a) => Math.max(...pts.map((p) => p[a])));
+      const mid = [0, 1, 2].map((a) => (lo[a] + hi[a]) / 2), half = Math.hypot(hi[0] - mid[0], hi[1] - mid[1], hi[2] - mid[2]);
+      const [cx, cy, cw] = clip(mid[0], mid[1], mid[2]);
+      if (cw - half - maxRadius * FOOTPRINT <= 0.05) continue;
+      nodes++;
+      const anyKept = pts.some((p) => {
+        const [sx, sy, sw] = clip(p[0], p[1], p[2]);
+        return reachesScreen(sx, sy, sw, (p[3] * alphaExtent(p[4])) / 2, test);
+      });
+      const kept = nodeReachesScreen(cx, cy, cw, half, maxRadius, test);
+      if (!kept) culled++;
+      if (anyKept && !kept) nodeWrong++;
+      if (anyKept && !reachesScreen(cx, cy, cw, half / FOOTPRINT + maxRadius, test)) oldWrong++;
+    }
+  }
+}
+console.log(`nodos ${nodes}, descartados ${culled}, descartados con algún splat que se dibuja ${nodeWrong} (con la prueba de un splat: ${oldWrong})`);
+if (nodeWrong > 0) throw new Error(`frustum.ts: ${nodeWrong} nodos visibles descartados`);
+if (culled === 0 || oldWrong === 0) throw new Error('frustum.ts: la prueba de nodos no es sensible');
 console.log('frustum.ts: todo bien');

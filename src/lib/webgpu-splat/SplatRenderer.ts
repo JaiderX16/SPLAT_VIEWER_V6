@@ -8,18 +8,15 @@ import { OrbitControls, type OrbitLimits } from './orbitControls';
 import { CollisionGrid } from './collision';
 import { LOOSE_MARGIN, type FrustumParams } from './frustum';
 import type { NavigationMode, NavigationSettings } from '../viewerHandle';
-import { LOD_MAX_SCALE, REVEAL_QUANTILE_STEPS, SPLAT_BYTES, type LodParams, type MainToWorker, type SceneTransform, type WorkerToMain } from './protocol';
+import { REVEAL_QUANTILE_STEPS, type LodParams, type MainToWorker, type SceneTransform, type WorkerToMain } from './protocol';
+import { BLOCK_FLOATS, BLOCK_SPLATS, SPLAT_BYTES } from './pack';
 
 /**
- * Distance-LOD presets. `minPx`: projected radius (px) under which splats get
- * thinned; `minKeep`: the smallest fraction kept for sub-pixel splats.
+ * LOD presets: merge size, the radius (px) under which a tree node's merged splat (lod.ts) is drawn instead of
+ * the splats under it. 0 merges only to fit the splat budget.
  */
 export type LodQuality = 'high' | 'balanced' | 'performance';
-const LOD_PRESETS: Record<LodQuality, { minPx: number; minKeep: number }> = {
-  high: { minPx: 0, minKeep: 1 },
-  balanced: { minPx: 1.25, minKeep: 0.12 },
-  performance: { minPx: 2.5, minKeep: 0.06 },
-};
+const LOD_MERGE_PX: Record<LodQuality, number> = { high: 0, balanced: 1, performance: 2 };
 
 export interface SplatRendererOptions {
   up: Vec3;
@@ -43,7 +40,7 @@ export interface SplatLoadOptions {
 export interface SplatRendererStats {
   splatCount: number;
   visibleCount: number;
-  /** Splats skipped by distance LOD in the last sort. */
+  /** Splats the LOD saved in the last sort: drawn merged into fewer, bigger splats (or, while streaming, left out by the budget). */
   lodCulled: number;
   /** Splats hidden because no part of them reaches the screen (hide-unseen on). */
   offscreen: number;
@@ -137,11 +134,12 @@ function hexToClear(hex: string): [number, number, number, number] {
 /**
  * WebGPU Gaussian-splat renderer built on vgpu.
  *
- * GPU memory: one storage buffer of packed 32-byte splats (half the size of a
- * naive f32 layout) and one u32 order buffer. Both are raw `GPUBuffer`s bound
- * through vgpu's raw-range bindings, so chunks stream in with
- * `queue.writeBuffer` at an offset and the buffers grow geometrically without
- * re-uploading from the CPU (`copyBufferToBuffer`).
+ * GPU memory: one storage buffer of packed 20-byte splats (pack.ts: positions
+ * quantized per block of 256 splats, whose boxes are in a small block buffer),
+ * with the LOD tree's merged splats after the scene's, and one u32 order
+ * buffer. All are raw `GPUBuffer`s bound through vgpu's raw-range bindings, so
+ * chunks stream in with `queue.writeBuffer` at an offset and the buffers grow
+ * geometrically without re-uploading from the CPU (`copyBufferToBuffer`).
  *
  * Frame cost: a single instanced draw (6 vertices × visible splats). The frame
  * loop renders on demand — when the camera, data, sort or settings change —
@@ -174,9 +172,13 @@ export class SplatRenderer {
   private readonly pendingPicks = new Map<number, (point: Vec3 | null) => void>();
 
   private splatBuffer: GPUBuffer;
+  private blockBuffer: GPUBuffer;
   private orderBuffer: GPUBuffer;
   private capacity = 1;
+  /** GPU splats uploaded: the scene's, then (once loaded) the LOD's merged ones. */
   private loadedCount = 0;
+  /** Splats in the scene. */
+  private splatCount = 0;
   private visibleCount = 0;
   private generation = 0;
   private sortInFlight = false;
@@ -196,7 +198,6 @@ export class SplatRenderer {
   private underground = 0;
   /** The scene's collision grid, for its floor. */
   private ground: CollisionGrid | null = null;
-  private lodPacked = false;
   /** Reveal timeline: starts with the first streamed splats; `loadedAt`/`splatsAt` once known. */
   private reveal: { start: number; quantiles: Float32Array; loadedAt: number | null; splatsAt: number | null } | null = null;
   private slowdown: { from: number; start: number } | null = null;
@@ -278,6 +279,7 @@ export class SplatRenderer {
     });
 
     this.splatBuffer = this.createBuffer('splats', SPLAT_BYTES, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC);
+    this.blockBuffer = this.createBuffer('blocks', BLOCK_FLOATS * 4, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC);
     this.orderBuffer = this.createBuffer('order', 16, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC);
 
     this.splatDraw = draw(gpu, {
@@ -287,7 +289,7 @@ export class SplatRenderer {
       instances: 0,
       blend: 'premultiplied',
     });
-    this.splatDraw.set({ splats: this.splatBuffer, order: this.orderBuffer });
+    this.splatDraw.set({ splats: this.splatBuffer, order: this.orderBuffer, blocks: this.blockBuffer });
 
     this.gridDraw = draw(gpu, {
       label: 'grid',
@@ -305,7 +307,7 @@ export class SplatRenderer {
     });
 
     this.editor = new EditorView(gpu, options.up);
-    this.editor.bindBuffers(this.splatBuffer, this.orderBuffer);
+    this.editor.bindBuffers(this.splatBuffer, this.orderBuffer, this.blockBuffer);
 
     // Click navigation listens in the capture phase and is registered before
     // the orbit controls, so presses inside the editor view never orbit.
@@ -376,6 +378,7 @@ export class SplatRenderer {
     this.axesDraw.dispose();
     this.gpu.dispose();
     this.splatBuffer.destroy();
+    this.blockBuffer.destroy();
     this.orderBuffer.destroy();
     // initFromDevice never destroys a borrowed device; we created it.
     this.device.destroy();
@@ -400,7 +403,7 @@ export class SplatRenderer {
     this.failLoad(new DOMException('Carga cancelada', 'AbortError'));
     this.post({ type: 'abort' });
     this.generation++;
-    this.loadedCount = 0;
+    this.loadedCount = this.splatCount = 0;
     this.visibleCount = 0;
     this.dataSinceSort = false;
     this.reveal = null;
@@ -603,7 +606,7 @@ export class SplatRenderer {
   getStats(): SplatRendererStats {
     const [w, h] = this.surf.size;
     return {
-      splatCount: this.loadedCount,
+      splatCount: this.splatCount,
       visibleCount: this.visibleCount,
       lodCulled: this.lodCulled,
       offscreen: this.offscreen,
@@ -620,7 +623,7 @@ export class SplatRenderer {
       canvasWidth: w,
       canvasHeight: h,
       dpr: this.surf.dpr,
-      gpuBufferMB: (this.splatBuffer.size + this.orderBuffer.size) / (1024 * 1024),
+      gpuBufferMB: (this.splatBuffer.size + this.blockBuffer.size + this.orderBuffer.size) / (1024 * 1024),
       cameraPosition: this.controls.getPosition(),
       cameraTarget: this.controls.getTarget(),
       cameraUp: [...this.controls.up],
@@ -635,7 +638,7 @@ export class SplatRenderer {
     const pointsT = (now - r.start) / REVEAL.POINTS_MS;
     // The splat wave waits for both the download and the point wave.
     if (r.splatsAt === null && r.loadedAt !== null && pointsT >= 1) r.splatsAt = now + REVEAL.HOLD_MS;
-    const slowdown = Math.min(Math.max(Math.sqrt(this.loadedCount / REVEAL.REFERENCE_SPLATS), 1), REVEAL.MAX_SLOWDOWN);
+    const slowdown = Math.min(Math.max(Math.sqrt(this.splatCount / REVEAL.REFERENCE_SPLATS), 1), REVEAL.MAX_SLOWDOWN);
     const splatsT = r.splatsAt === null ? 0 : (now - r.splatsAt) / (REVEAL.SPLATS_MS * slowdown);
     if (splatsT >= 1) {
       this.reveal = null;
@@ -714,7 +717,7 @@ export class SplatRenderer {
         viewport: [w, h],
         focal: [(this.proj[0] * w) / 2, (this.proj[5] * h) / 2],
         params: [this.splatScale, this.pointCloud ? 1 : 0, this.ortho ? 1 : 0, tanHalf * Math.max(1, w / Math.max(h, 1))],
-        lod: [this.lodPacked ? 1 : 0, LOD_MAX_SCALE, 0, revealUniform ? 1 : 0],
+        lod: [0, 0, 0, revealUniform ? 1 : 0],
         reveal: revealUniform ?? [0, 0, 1, 1],
       },
     });
@@ -741,7 +744,6 @@ export class SplatRenderer {
         splatScale: this.splatScale,
         pointCloud: this.pointCloud,
         visibleCount: this.visibleCount,
-        lodPacked: this.lodPacked,
       });
     }
 
@@ -788,13 +790,11 @@ export class SplatRenderer {
     this.sortInFlight = true;
     this.sortGeneration = this.generation;
     const [, h] = this.surf.size;
-    const preset = LOD_PRESETS[this.lodQuality];
     const lod: LodParams = {
       focalPx: (this.proj[5] * h) / 2,
       ortho: this.ortho,
-      // Point-cloud dots have a fixed size, so thinning would only lose points.
-      minPx: this.pointCloud ? 0 : preset.minPx,
-      minKeep: preset.minKeep,
+      // Point-cloud dots have a fixed size, so merging would only lose points.
+      minPx: this.pointCloud ? 0 : LOD_MERGE_PX[this.lodQuality],
       budget: this.splatBudget,
       hideNoise: this.hideNoise,
       cutBelow: this.floorCut(),
@@ -856,13 +856,15 @@ export class SplatRenderer {
       case 'chunk': {
         this.ensureCapacity(msg.first + msg.count);
         this.device.queue.writeBuffer(this.splatBuffer, msg.first * SPLAT_BYTES, msg.data.buffer, msg.data.byteOffset, msg.data.byteLength);
+        this.device.queue.writeBuffer(this.blockBuffer, (msg.first / BLOCK_SPLATS) * BLOCK_FLOATS * 4, msg.boxes.buffer, msg.boxes.byteOffset, msg.boxes.byteLength);
         this.loadedCount = Math.max(this.loadedCount, msg.first + msg.count);
         this.dataSinceSort = true;
+        // Scene splats carry the reveal quantiles; the LOD's merged ones (after them) do not.
         if (msg.revealQuantiles) {
+          this.splatCount = Math.max(this.splatCount, msg.first + msg.count);
           // Median splat distance from the origin: the scene's size for first-person speed and eye height.
           this.controls.sceneScale = Math.max(msg.revealQuantiles[REVEAL_QUANTILE_STEPS / 2], 1e-3);
         }
-        // `revealQuantiles` is missing only from a worker that predates a hot reload: skip the reveal.
         if (this.reveal && msg.revealQuantiles) {
           this.reveal.quantiles = msg.revealQuantiles;
         } else if (msg.first === 0 && msg.revealQuantiles) {
@@ -876,7 +878,8 @@ export class SplatRenderer {
         break;
       }
       case 'done': {
-        this.loadedCount = msg.count;
+        this.splatCount = msg.count;
+        this.loadedCount = msg.total;
         this.shrinkToFit();
         this.dataSinceSort = true;
         if (this.reveal) this.reveal.loadedAt = performance.now();
@@ -893,7 +896,6 @@ export class SplatRenderer {
           this.ensureOrderCapacity(visible);
           if (visible > 0) this.device.queue.writeBuffer(this.orderBuffer, 0, msg.order.buffer, msg.order.byteOffset, visible * 4);
           this.visibleCount = visible;
-          this.lodPacked = msg.packed;
           this.lodCulled = msg.lodCulled;
           this.offscreen = msg.offscreen;
           this.noisy = msg.noisy;
@@ -1123,44 +1125,53 @@ export class SplatRenderer {
       this.post({ type: 'abort' });
       return;
     }
-    const next = Math.min(maxSplats, Math.max(splats, Math.ceil(this.capacity * 1.5)));
-    const grown = this.createBuffer('splats', next * SPLAT_BYTES, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC);
-    if (this.loadedCount > 0) {
-      const encoder = this.device.createCommandEncoder({ label: 'grow-splats' });
-      encoder.copyBufferToBuffer(this.splatBuffer, 0, grown, 0, this.loadedCount * SPLAT_BYTES);
+    this.resizeSplats(Math.min(maxSplats, Math.max(splats, Math.ceil(this.capacity * 1.5))));
+    this.ensureOrderCapacity(this.capacity);
+  }
+
+  /** Re-creates the splat and block buffers for `count` splats, copying the uploaded ones over on the GPU. */
+  private resizeSplats(count: number) {
+    const usage = GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC;
+    const splats = this.createBuffer('splats', count * SPLAT_BYTES, usage);
+    const blocks = this.createBuffer('blocks', Math.ceil(count / BLOCK_SPLATS) * BLOCK_FLOATS * 4, usage);
+    const kept = Math.min(this.loadedCount, count);
+    if (kept > 0) {
+      const encoder = this.device.createCommandEncoder({ label: 'resize-splats' });
+      encoder.copyBufferToBuffer(this.splatBuffer, 0, splats, 0, kept * SPLAT_BYTES);
+      encoder.copyBufferToBuffer(this.blockBuffer, 0, blocks, 0, Math.ceil(kept / BLOCK_SPLATS) * BLOCK_FLOATS * 4);
       this.device.queue.submit([encoder.finish()]);
     }
-    this.splatBuffer.destroy(); // deferred by WebGPU until the copy has executed
-    this.splatBuffer = grown;
-    this.capacity = next;
-    this.splatDraw.set({ splats: this.splatBuffer });
-    this.editor.bindBuffers(this.splatBuffer, this.orderBuffer);
-    this.ensureOrderCapacity(next);
+    this.splatBuffer.destroy(); // deferred by WebGPU until the copies have executed
+    this.blockBuffer.destroy();
+    this.splatBuffer = splats;
+    this.blockBuffer = blocks;
+    this.capacity = count;
+    this.splatDraw.set({ splats, blocks });
+    this.editor.bindBuffers(splats, this.orderBuffer, blocks);
   }
 
   /**
    * Buffers are sized from the file before faint splats are dropped while parsing: once loaded, trim
-   * them to what actually loaded (about a third less GPU memory at the default alpha threshold).
+   * them to what actually loaded (about a third less GPU memory at the default alpha threshold). A sort
+   * draws each scene splat at most once, alone or inside a merged one, so the order needs no more than the scene's count.
    */
   private shrinkToFit() {
     const count = Math.max(1, this.loadedCount);
-    if (count >= this.capacity * 0.9) return;
-    const usage = GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC;
-    const splats = this.createBuffer('splats', count * SPLAT_BYTES, usage);
-    const order = this.createBuffer('order', count * 4, usage);
-    const encoder = this.device.createCommandEncoder({ label: 'trim-buffers' });
-    encoder.copyBufferToBuffer(this.splatBuffer, 0, splats, 0, count * SPLAT_BYTES);
-    const ordered = Math.min(this.visibleCount, count);
-    if (ordered > 0) encoder.copyBufferToBuffer(this.orderBuffer, 0, order, 0, ordered * 4);
-    this.device.queue.submit([encoder.finish()]);
-    this.splatBuffer.destroy(); // deferred by WebGPU until the copies have executed
-    this.orderBuffer.destroy();
-    this.splatBuffer = splats;
+    if (count < this.capacity * 0.9) this.resizeSplats(count);
+    const orders = Math.max(1, this.splatCount);
+    if (orders * 4 >= this.orderBuffer.size * 0.9) return;
+    const order = this.createBuffer('order', orders * 4, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC);
+    const ordered = Math.min(this.visibleCount, orders);
+    if (ordered > 0) {
+      const encoder = this.device.createCommandEncoder({ label: 'trim-order' });
+      encoder.copyBufferToBuffer(this.orderBuffer, 0, order, 0, ordered * 4);
+      this.device.queue.submit([encoder.finish()]);
+    }
+    this.orderBuffer.destroy(); // deferred by WebGPU until the copy has executed
     this.orderBuffer = order;
-    this.capacity = count;
     this.visibleCount = ordered;
-    this.splatDraw.set({ splats: this.splatBuffer, order: this.orderBuffer });
-    this.editor.bindBuffers(this.splatBuffer, this.orderBuffer);
+    this.splatDraw.set({ order });
+    this.editor.bindBuffers(this.splatBuffer, order, this.blockBuffer);
   }
 
   private ensureOrderCapacity(count: number) {
@@ -1174,6 +1185,6 @@ export class SplatRenderer {
     this.orderBuffer.destroy();
     this.orderBuffer = grown;
     this.splatDraw.set({ order: this.orderBuffer });
-    this.editor.bindBuffers(this.splatBuffer, this.orderBuffer);
+    this.editor.bindBuffers(this.splatBuffer, this.orderBuffer, this.blockBuffer);
   }
 }

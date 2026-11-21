@@ -9,7 +9,8 @@
  */
 import { buildVoxelGrid } from './collision.ts';
 import { lookAt, perspective } from './math.ts';
-import { buildOcclusionGrid, isOccluded, occlusionMap, splatArea } from './occlusion.ts';
+import { FOOTPRINT } from './frustum.ts';
+import { buildOcclusionGrid, isOccluded, nodeOccluded, occlusionMap } from './occlusion.ts';
 
 let seed = 3;
 const rand = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296);
@@ -20,13 +21,12 @@ const check = (ok: boolean, what: string) => {
 
 /** A scene of tagged splats and the share of each tag the worker would hide from one camera. */
 function scene() {
-  const pos: number[] = [], alpha: number[] = [], area: number[] = [], radius: number[] = [], tag: string[] = [];
+  const pos: number[] = [], alpha: number[] = [], scale: number[] = [], radius: number[] = [], tag: string[] = [];
   /** Splat de radio `s` (1σ) y opacidad `a` (0–255): plano (normal x, como una pared) o redondo. */
   const add = (x: number, y: number, z: number, s: number, a: number, t: string, flat: 'x' | 'y' | false = false) => {
     pos.push(x, y, z);
     alpha.push(a);
-    const [c00, c11] = flat === 'x' ? [1e-8, s * s] : flat === 'y' ? [s * s, 1e-8] : [s * s, s * s];
-    area.push(splatArea(c00, 0, 0, c11, 0, flat ? s * s : s * s));
+    scale.push(flat === 'x' ? 1e-4 : s, flat === 'y' ? 1e-4 : s, s);
     radius.push(s);
     tag.push(t);
   };
@@ -35,7 +35,7 @@ function scene() {
     const positions = Float32Array.from(pos), alphas = Uint8Array.from(alpha);
     const bounds = buildVoxelGrid(positions, alphas, n);
     if (!bounds) throw new Error('sin rejilla');
-    const grid = buildOcclusionGrid(bounds, positions, alphas, Float32Array.from(area), n);
+    const grid = buildOcclusionGrid(bounds, positions, alphas, Float32Array.from(scale), n);
     // 90° para ver también los lados; y abajo como en el visor.
     const view = lookAt(eye, target, [0, -1, 0], new Float32Array(16));
     const proj = perspective(Math.PI / 2, 1.5, 0.05, 1000, new Float32Array(16));
@@ -55,7 +55,57 @@ function scene() {
     const share = (t: string) => out.get(t)![0] / out.get(t)![1];
     return Object.assign(share, { flags });
   };
-  return { add, hidden };
+  /**
+   * Splats agrupados en celdas de `cell` m, como nodos del árbol LOD: cuántos oculta nodeOccluded, cuántos de ellos
+   * tienen algún splat que isOccluded no oculta (debe ser 0) y cuántos así ocultaría isOccluded sobre la esfera del grupo.
+   */
+  const nodes = (eye: [number, number, number], target: [number, number, number], travel: number, cell: number) => {
+    const n = alpha.length;
+    const positions = Float32Array.from(pos), alphas = Uint8Array.from(alpha);
+    const bounds = buildVoxelGrid(positions, alphas, n);
+    if (!bounds) throw new Error('sin rejilla');
+    const grid = buildOcclusionGrid(bounds, positions, alphas, Float32Array.from(scale), n);
+    const view = lookAt(eye, target, [0, -1, 0], new Float32Array(16));
+    const proj = perspective(Math.PI / 2, 1.5, 0.05, 1000, new Float32Array(16));
+    const map = occlusionMap(grid, view, proj[0], proj[5], 1.05, travel);
+    const clip = (x: number, y: number, z: number) => [
+      proj[0] * (view[0] * x + view[4] * y + view[8] * z + view[12]),
+      proj[5] * (view[1] * x + view[5] * y + view[9] * z + view[13]),
+      -(view[2] * x + view[6] * y + view[10] * z + view[14]),
+    ];
+    const groups = new Map<string, number[]>();
+    for (let i = 0; i < n; i++) {
+      const key = [0, 1, 2].map((a) => Math.floor(positions[i * 3 + a] / cell)).join();
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(i);
+    }
+    let hiddenNodes = 0, wrong = 0, oldWrong = 0;
+    for (const members of groups.values()) {
+      const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+      let maxRadius = 0;
+      for (const i of members) {
+        for (let a = 0; a < 3; a++) {
+          lo[a] = Math.min(lo[a], positions[i * 3 + a]);
+          hi[a] = Math.max(hi[a], positions[i * 3 + a]);
+        }
+        maxRadius = Math.max(maxRadius, radius[i]);
+      }
+      const mid = [0, 1, 2].map((a) => (lo[a] + hi[a]) / 2), half = Math.hypot(hi[0] - mid[0], hi[1] - mid[1], hi[2] - mid[2]);
+      const [cx, cy, cw] = clip(mid[0], mid[1], mid[2]);
+      if (cw - half - maxRadius * FOOTPRINT <= 0.05) continue; // the walk tests only nodes all ahead of the near plane
+      const all = members.every((i) => {
+        const [x, y, w] = clip(positions[i * 3], positions[i * 3 + 1], positions[i * 3 + 2]);
+        return isOccluded(map, x, y, w, radius[i]);
+      });
+      if (nodeOccluded(map, cx, cy, cw, half, maxRadius)) {
+        hiddenNodes++;
+        if (!all) wrong++;
+      }
+      if (!all && isOccluded(map, cx, cy, cw, half / FOOTPRINT + maxRadius)) oldWrong++;
+    }
+    return { hiddenNodes, wrong, oldWrong };
+  };
+  return { add, hidden, nodes };
 }
 
 const a = scene();
@@ -116,3 +166,17 @@ for (let k = 0, i = pillar.flags.length - fondo.length / 2; k < fondo.length; k 
 }
 check(wrong === 0, `junto al pilar no se oculta el fondo que se ve (${wrong} splats de fondo mal ocultos; ${(100 * pillar('fondo')).toFixed(1)} % del fondo tapado por el pilar)`);
 
+// Nodos del árbol LOD (grupos de 5 cm a 2 m de las escenas de arriba, quieta y moviéndose): nodeOccluded solo oculta un
+// grupo si isOccluded oculta cada uno de sus splats.
+let hiddenNodes = 0, nodeWrong = 0, oldWrong = 0;
+for (const [sc, eye, target] of [[a, [-2, 0, -0.5], [1, 0, -0.5]], [b, [-2, 0, 0], [1, 0, 0]], [c, [0, -3, -0.3], [0, 0, 0]], [d, [0, 0, 0], [1, 0, 0]]] as const) {
+  for (const cell of [0.05, 0.3, 2]) {
+    for (const travel of [0, 0.3]) {
+      const r = sc.nodes(eye as [number, number, number], target as [number, number, number], travel, cell);
+      hiddenNodes += r.hiddenNodes;
+      nodeWrong += r.wrong;
+      oldWrong += r.oldWrong;
+    }
+  }
+}
+check(nodeWrong === 0 && hiddenNodes > 0, `un nodo solo se oculta si se oculta cada splat suyo (${hiddenNodes} nodos ocultos, ${nodeWrong} mal; con la prueba de un splat, ${oldWrong} mal)`);

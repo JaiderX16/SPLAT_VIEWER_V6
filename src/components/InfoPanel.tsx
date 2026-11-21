@@ -101,7 +101,7 @@ const InfoPanel: React.FC<InfoPanelProps> = ({ info, visible, onToggle }) => {
         {info.lodCulled !== undefined && info.lodCulled > 0 && (
           <div className="flex items-center justify-between">
             <span className="text-[#46464b] dark:text-white/85 flex items-center gap-1.5">
-              <Layers className="w-3.5 h-3.5" /> LOD (omitidos)
+              <Layers className="w-3.5 h-3.5" /> LOD (fusionados)
             </span>
             <span className="font-mono text-xs">{info.lodCulled.toLocaleString()}</span>
           </div>

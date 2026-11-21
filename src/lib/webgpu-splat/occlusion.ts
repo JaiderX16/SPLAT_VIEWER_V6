@@ -73,13 +73,13 @@ export interface OcclusionGrid {
 const CENTRE_TAU = Float32Array.from({ length: 256 }, (_, a) => -Math.log(1 - Math.min(a, 254) / 255));
 
 /**
- * Mean screen area of a splat's Gaussian over all view directions, in world units² per unit peak
- * opacity: π·√(sum of Σ's principal 2×2 minors). Exact for flat splats (π·s1·s2), 13 % low for round
- * ones (hides less, never more).
+ * Mean screen area of a splat's Gaussian over all view directions, in world units² per unit peak opacity,
+ * from its axis scales: π·√(σx²σy² + σx²σz² + σy²σz²) (Σ's principal 2×2 minors, any rotation). Exact for
+ * flat splats (π·s1·s2), 13 % low for round ones (hides less, never more).
  */
-export function splatArea(c00: number, c01: number, c02: number, c11: number, c12: number, c22: number) {
-  const minors = c00 * c11 - c01 * c01 + c00 * c22 - c02 * c02 + c11 * c22 - c12 * c12;
-  return Math.PI * Math.sqrt(Math.max(minors, 0));
+export function splatArea(sx: number, sy: number, sz: number) {
+  const x = sx * sx, y = sy * sy, z = sz * sz;
+  return Math.PI * Math.sqrt(x * y + x * z + y * z);
 }
 
 /**
@@ -91,7 +91,7 @@ export function buildOcclusionGrid(
   bounds: { origin: Vec3; voxel: number; dims: Vec3 },
   positions: Float32Array,
   alphas: Uint8Array,
-  areas: Float32Array,
+  scales: Float32Array,
   count: number,
 ): OcclusionGrid {
   const { origin, voxel, dims } = bounds;
@@ -105,15 +105,16 @@ export function buildOcclusionGrid(
     const z = Math.floor((positions[i * 3 + 2] - origin[2]) / voxel);
     if (x < 0 || y < 0 || z < 0 || x >= nx || y >= ny || z >= nz) continue;
     const a = alphas[i];
+    const area = splatArea(scales[i * 3], scales[i * 3 + 1], scales[i * 3 + 2]);
     // Half-size of the cube it covers, from its mean radius √(area / π).
-    const h = Math.min(SPREAD_VOXELS, Math.floor(Math.sqrt(areas[i] / Math.PI) / voxel));
+    const h = Math.min(SPREAD_VOXELS, Math.floor(Math.sqrt(area / Math.PI) / voxel));
     if (h === 0) {
       const k = (z * ny + y) * nx + x;
-      acc[k] = Math.min(65535, acc[k] + Math.min((a / 255) * areas[i] * perArea, CENTRE_TAU[a] * 256));
+      acc[k] = Math.min(65535, acc[k] + Math.min((a / 255) * area * perArea, CENTRE_TAU[a] * 256));
       continue;
     }
     const side = 2 * h + 1;
-    const share = Math.min(((a / 255) * areas[i] * perArea) / (OPACITY_GAIN * side * side * side), CENTRE_TAU[a] * 256);
+    const share = Math.min(((a / 255) * area * perArea) / (OPACITY_GAIN * side * side * side), CENTRE_TAU[a] * 256);
     for (let zz = Math.max(0, z - h); zz <= Math.min(nz - 1, z + h); zz++) {
       for (let yy = Math.max(0, y - h); yy <= Math.min(ny - 1, y + h); yy++) {
         for (let xx = Math.max(0, x - h); xx <= Math.min(nx - 1, x + h); xx++) {
@@ -255,6 +256,29 @@ export function isOccluded(map: OcclusionMap, cx: number, cy: number, cw: number
   const tx = nx / map.scaleX, ty = ny / map.scaleY;
   reach = radius * inv * Math.sqrt(1 + tx * tx + ty * ty);
   const ux = reach * map.reachX, uy = reach * map.reachY;
+  return depth > farthest(map.levels, Math.floor(fx - ux), Math.floor(fx + ux), Math.floor(fy - uy), Math.floor(fy + uy));
+}
+
+/**
+ * Whether every splat of a tree node is hidden (`isOccluded` true for each): centres within `half` (world) of the clip
+ * position, radii at most `radius`. Its nearest possible start is tested against the occluders of every tile any of
+ * its footprints can touch, bounded from the node's nearest depth, where it projects largest.
+ */
+export function nodeOccluded(map: OcclusionMap, cx: number, cy: number, cw: number, half: number, radius: number) {
+  const depth = cw - half - radius * map.front;
+  if (depth <= map.nearest) return false;
+  const near = cw - half; // > depth > 0
+  const inv = 1 / cw;
+  const nx = cx * inv, ny = cy * inv;
+  const tx = Math.abs(nx) / map.scaleX, ty = Math.abs(ny) / map.scaleY;
+  // Centres project within (half / near)·(1 + tan) of the node's centre (tangent units); each footprint adds at most
+  // FOOTPRINT·radius·stretch / near, with the stretch of the farthest centre.
+  const spreadX = (half / near) * (1 + tx), spreadY = (half / near) * (1 + ty);
+  const sx = tx + spreadX, sy = ty + spreadY;
+  const foot = (radius * FOOTPRINT * Math.sqrt(1 + sx * sx + sy * sy)) / near;
+  // + 1 tile: a small splat reads the four tiles around its nearest corner.
+  const ux = (spreadX + foot) * map.scaleX * map.tileScaleX + 1, uy = (spreadY + foot) * map.scaleY * map.tileScaleY + 1;
+  const fx = nx * map.tileScaleX + map.tileOffsetX, fy = ny * map.tileScaleY + map.tileOffsetY;
   return depth > farthest(map.levels, Math.floor(fx - ux), Math.floor(fx + ux), Math.floor(fy - uy), Math.floor(fy + uy));
 }
 
