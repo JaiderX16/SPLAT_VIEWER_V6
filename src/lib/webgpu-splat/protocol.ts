@@ -78,6 +78,10 @@ export interface LodParams {
   minKeep: number;
   /** Most splats to keep (0 = no limit): the thinning threshold rises until the expected count fits. */
   budget: number;
+  /** Skip giant and needle splats (noise.ts). */
+  hideNoise: boolean;
+  /** Skip what lies under the floor (collision.ts floorCutHeight: height along up = sign × position[axis]); null keeps it. */
+  cutBelow: { axis: number; sign: number; floor: number; voxel: number } | null;
 }
 
 /** Largest footprint enlargement for thinned splats (must match the shader decode). */
@@ -109,6 +113,12 @@ export type WorkerToMain =
       lodCulled: number;
       /** Splats the loose margin would have kept that tight culling dropped (0 when it is off). */
       offscreen: number;
+      /** In-view giant and needle splats skipped (0 when that is off). */
+      noisy: number;
+      /** Splats hidden behind the first layer the camera sees, dropped by hide-unseen (occlusion.ts). */
+      occluded: number;
+      /** In-view splats under the floor, dropped by the floor cut (0 when it is off). */
+      underground: number;
     }
   | { type: 'picked'; id: number; point: [number, number, number] | null }
   /** Rejilla de colisión de la escena completa; llega justo antes de 'done'. */

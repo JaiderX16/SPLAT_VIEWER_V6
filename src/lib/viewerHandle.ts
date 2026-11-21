@@ -78,8 +78,14 @@ export interface ViewerStats {
   renderCount: number;
   /** Splats skipped by distance LOD (0 when unsupported). */
   lodCulled: number;
+  /** Splats hidden behind the first layer the camera sees, walls and objects (null when unsupported or off). */
+  occlusionCulled: number | null;
+  /** In-view splats under the floor, dropped by the floor cut (null when off or unsupported). */
+  undergroundCulled: number | null;
   /** Splats hidden because no part of them reaches the screen (null when unsupported). */
   offscreenCulled: number | null;
+  /** In-view giant and needle splats hidden as capture noise (null when off or unsupported). */
+  noiseCulled: number | null;
   /** GPU time of the splat pass, ms (timestamp queries; null when unsupported). */
   gpuMs: number | null;
   fps: number | null;
@@ -138,6 +144,12 @@ export interface SplatViewerHandle {
   /** Máximo de splats dibujados por vista (0 = sin límite); ausente si el backend no lo admite. */
   setSplatBudget?: (budget: number) => void;
   getSplatBudget?: () => number;
+  /** Ocultar splats gigantes y agujas (ruido del escaneo); ausente si el backend no lo admite. */
+  setHideNoise?: (enabled: boolean) => void;
+  getHideNoise?: () => boolean;
+  /** Quitar lo que hay bajo el suelo de la escena (ruido del escaneo); ausente si el backend no lo admite. */
+  setCutUnderground?: (enabled: boolean) => void;
+  getCutUnderground?: () => boolean;
 }
 
 export interface SplatViewerProps {

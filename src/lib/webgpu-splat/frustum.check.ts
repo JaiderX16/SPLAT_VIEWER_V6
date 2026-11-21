@@ -1,17 +1,18 @@
 /**
  * Autoverificación de frustum.ts: ningún splat que dibuje algo en pantalla puede descartarse.
  * Para splats aleatorios (posición, escalas y rotación) se calcula el cuadrilátero exacto que dibuja
- * splat.wgsl y se comprueba que todo el que toca la pantalla pasa `reachesScreen`, también si la cámara
- * se ha movido `travel` desde el sort. Ejecutar: node src/lib/webgpu-splat/frustum.check.ts
+ * splat.wgsl (encogido a su opacidad, como hace el shader) y se comprueba que todo el que toca la pantalla
+ * pasa `reachesScreen` con el radio que usa el worker, también si la cámara se ha movido `travel` desde el
+ * sort. Ejecutar: node src/lib/webgpu-splat/frustum.check.ts
  */
-import { frustumTest, reachesScreen, type FrustumParams } from './frustum.ts';
+import { alphaExtent, frustumTest, reachesScreen, type FrustumParams } from './frustum.ts';
 import { lookAt, multiply, perspective, type Vec3 } from './math.ts';
 
 let seed = 3;
 const rand = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296);
 
 /** NDC bounding box of the quad splat.wgsl draws, or null when it draws nothing. */
-function drawnBox(pos: Vec3, m: number[], view: Float32Array, proj: Float32Array, w: number, h: number) {
+function drawnBox(pos: Vec3, m: number[], alpha: number, view: Float32Array, proj: Float32Array, w: number, h: number) {
   const [x, y, z] = pos;
   const vx = view[0] * x + view[4] * y + view[8] * z + view[12];
   const vy = view[1] * x + view[5] * y + view[9] * z + view[13];
@@ -32,7 +33,8 @@ function drawnBox(pos: Vec3, m: number[], view: Float32Array, proj: Float32Array
   const mid = (ca + cc) / 2, rad = Math.hypot((ca - cc) / 2, cb), l1 = mid + rad, l2 = mid - rad;
   const dl = Math.hypot(cb, l1 - ca), dg = dl > 1e-8 ? [cb / dl, (l1 - ca) / dl] : [1, 0];
   const a1 = Math.min(Math.sqrt(2 * l1), 1024), a2 = Math.min(Math.sqrt(2 * l2), 1024);
-  const ex = 2 * (Math.abs(a1 * dg[0]) + Math.abs(a2 * dg[1])), ey = 2 * (Math.abs(a1 * dg[1]) + Math.abs(a2 * dg[0]));
+  const e = alphaExtent(alpha);
+  const ex = e * (Math.abs(a1 * dg[0]) + Math.abs(a2 * dg[1])), ey = e * (Math.abs(a1 * dg[1]) + Math.abs(a2 * dg[0]));
   return [nx - (2 * ex) / w, ny - (2 * ey) / h, nx + (2 * ex) / w, ny + (2 * ey) / h];
 }
 
@@ -65,13 +67,14 @@ for (const [w, h] of [[1920, 1080], [390, 844]]) {
       ];
       // The worker's radius: √ of the covariance's largest diagonal entry.
       const radius = Math.sqrt(Math.max(m[0] ** 2 + m[1] ** 2 + m[2] ** 2, m[3] ** 2 + m[4] ** 2 + m[5] ** 2, m[6] ** 2 + m[7] ** 2 + m[8] ** 2));
-      const box = drawnBox(pos, m, travel ? later : view, proj, w, h);
+      const alpha = 1 + Math.floor(rand() * 255);
+      const box = drawnBox(pos, m, alpha, travel ? later : view, proj, w, h);
       const onScreen = !!box && box[0] < 1 && box[2] > -1 && box[1] < 1 && box[3] > -1;
       const [x, y, z] = pos;
       if (view[2] * x + view[6] * y + view[10] * z + view[14] > -0.05) continue; // the worker's near cull
       total++;
       const cw = vp[3] * x + vp[7] * y + vp[11] * z + vp[15];
-      const kept = reachesScreen(vp[0] * x + vp[4] * y + vp[8] * z + vp[12], vp[1] * x + vp[5] * y + vp[9] * z + vp[13], cw, radius, frustumTest(params));
+      const kept = reachesScreen(vp[0] * x + vp[4] * y + vp[8] * z + vp[12], vp[1] * x + vp[5] * y + vp[9] * z + vp[13], cw, (radius * alphaExtent(alpha)) / 2, frustumTest(params));
       if (onScreen) drawn++;
       if (onScreen && !kept) wrong++;
       if (!kept) dropped++;

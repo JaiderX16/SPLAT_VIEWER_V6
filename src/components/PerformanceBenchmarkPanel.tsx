@@ -11,8 +11,14 @@ export interface PerformanceBenchmarkInfo {
   activeSplats: number;
   /** Splats hidden because the camera does not see them (null when the option is off or unsupported). */
   offscreenCulled: number | null;
+  /** Splats hidden behind walls and objects the camera sees first (null when off or unsupported). */
+  occlusionCulled: number | null;
+  /** Splats under the floor, cut (null when off or unsupported). */
+  undergroundCulled: number | null;
   /** Splats thinned by distance LOD and the splat budget. */
   lodCulled: number;
+  /** In-view giant and needle splats hidden as noise (null when off or unsupported). */
+  noiseCulled: number | null;
   drawCalls: number | null;
   sortTimeMs: number;
   /** GPU time of the splat pass, ms (null without timestamp queries). */
@@ -140,7 +146,7 @@ export default function PerformanceBenchmarkPanel({ info, visible }: Performance
             icon={<Layers3 className="h-3.5 w-3.5" />}
             label="Splats activos"
             value={formatCompactNumber(info.activeSplats)}
-            detail={`${formatCompactNumber(info.totalSplats)} totales${info.offscreenCulled !== null ? ` · ${formatCompactNumber(info.offscreenCulled)} fuera` : ''}${info.lodCulled > 0 ? ` · ${formatCompactNumber(info.lodCulled)} aligerados` : ''}`}
+            detail={`${formatCompactNumber(info.totalSplats)} totales${info.offscreenCulled !== null ? ` · ${formatCompactNumber(info.offscreenCulled)} fuera` : ''}${info.occlusionCulled ? ` · ${formatCompactNumber(info.occlusionCulled)} tapados` : ''}${info.lodCulled > 0 ? ` · ${formatCompactNumber(info.lodCulled)} aligerados` : ''}${info.noiseCulled ? ` · ${formatCompactNumber(info.noiseCulled)} ruido` : ''}${info.undergroundCulled ? ` · ${formatCompactNumber(info.undergroundCulled)} bajo el suelo` : ''}`}
             status={info.score.splats.status}
           />
           <MetricRow

@@ -3,7 +3,8 @@
 // One instance per visible splat; `order` holds the worker's depth-sorted
 // indices, so instance 0 is the farthest splat. Each instance expands into a
 // screen-aligned quad (two triangles) covering ±2√2 σ of the projected 2D
-// Gaussian; the fragment stage evaluates the falloff.
+// Gaussian, less for faint splats (only where they are visible); the fragment
+// stage evaluates the falloff.
 
 struct Camera {
   view: mat4x4f,
@@ -151,12 +152,17 @@ fn vs_main(@builtin(vertex_index) vertexIndex: u32, @builtin(instance_index) ins
     minor = mix(minor, vec2f(diag.y, -diag.x) * DOT_PX, dotMix);
   }
 
-  // Two triangles: (-2,-2) (2,-2) (2,2) | (-2,-2) (2,2) (-2,2)
+  // Two triangles: (-1,-1) (1,-1) (1,1) | (-1,-1) (1,1) (-1,1), scaled to the visible half-size.
   var corners = array<vec2f, 6>(
-    vec2f(-2.0, -2.0), vec2f(2.0, -2.0), vec2f(2.0, 2.0),
-    vec2f(-2.0, -2.0), vec2f(2.0, 2.0), vec2f(-2.0, 2.0),
+    vec2f(-1.0, -1.0), vec2f(1.0, -1.0), vec2f(1.0, 1.0),
+    vec2f(-1.0, -1.0), vec2f(1.0, 1.0), vec2f(-1.0, 1.0),
   );
-  let corner = corners[vertexIndex];
+  // ±2 covers the |uv|² ≤ 4 cutoff, but the fragment stage also drops α·e^-r² < 1/255: a faint splat ends at
+  // r² = ln(255 α), so its quad shrinks to that (+1 % for rounding). Same pixels, fewer fragments.
+  // Dots (point cloud, reveal) are drawn at up to full opacity and keep the whole quad.
+  // frustum.ts alphaExtent mirrors this for the worker's culling.
+  let extent = select(min(2.0, sqrt(max(log(255.0 * rgba.a), 0.0)) * 1.01 + 0.01), 2.0, camera.params.y > 0.5 || dotMix > 0.0);
+  let corner = corners[vertexIndex] * extent;
   let offsetPx = corner.x * major + corner.y * minor;
 
   var out: VertexOut;

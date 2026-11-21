@@ -4,7 +4,7 @@
  * repisa a la altura de los ojos.
  * Ejecutar: node src/lib/webgpu-splat/collision.check.ts
  */
-import { buildVoxelGrid, CollisionGrid, type Body } from './collision.ts';
+import { buildVoxelGrid, CollisionGrid, floorCutHeight, type Body } from './collision.ts';
 import type { Vec3 } from './math';
 
 const pts: number[] = [];
@@ -63,3 +63,19 @@ check(!!spot && grid.bodyFree(spot, body) && near(spot[1], 0), `aterriza en el s
 const inside = grid.findStand([3.6, -1, 0], 0, body, 3);
 check(!!inside && inside[0] < 3, `fuera de la sala aterriza dentro, bajo techo (x = ${inside?.[0].toFixed(2)})`);
 console.log('collision.ts: todo bien');
+
+// Corte bajo el suelo: suelo denso en 0, su reflejo cada vez más ralo hasta −40 cm y ruido suelto hasta −1,5 m
+// (arriba = −y). El corte debe quedar bajo el reflejo y por encima del ruido.
+{
+  let seed = 5;
+  const rand = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296);
+  const ys: number[] = [];
+  for (let k = 0; k < 200000; k++) ys.push(rand() * 0.02); // suelo, 2 cm de grosor
+  for (let k = 0; k < 60000; k++) ys.push(0.4 * Math.sqrt(rand())); // reflejo: más denso cerca del suelo
+  for (let k = 0; k < 300; k++) ys.push(0.4 + 1.1 * rand()); // ruido suelto
+  const pos = new Float32Array(ys.length * 3);
+  ys.forEach((y, i) => (pos[i * 3 + 1] = y));
+  const cut = floorCutHeight(pos, ys.length, 1, -1, 0, 0.04);
+  if (!(cut <= -0.38 && cut >= -0.6)) throw new Error(`corte bajo el suelo en ${cut.toFixed(3)} m: debía quedar entre −0,6 y −0,38`);
+  console.log(`ok  corte bajo el suelo en ${cut.toFixed(2)} m: deja el suelo y su reflejo (hasta −0,40), quita el ruido de debajo`);
+}

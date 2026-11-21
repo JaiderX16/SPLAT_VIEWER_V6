@@ -8,6 +8,14 @@
 
 /** Quad half-extent per unit of the worker's radius: 2√2·σ (splat.wgsl), with σ ≤ √3 × √(largest diagonal of Σ). */
 export const FOOTPRINT = 2 * Math.SQRT2 * Math.sqrt(3);
+
+/**
+ * Visible half-size of a splat's quad in units of √2σ for opacity `alpha` (0–255), as splat.wgsl draws it:
+ * fragments with α·e^-r² < 1/255 are dropped, so a faint splat ends before the ±2 cutoff.
+ */
+export function alphaExtent(alpha: number) {
+  return Math.min(2, Math.sqrt(Math.max(Math.log(alpha), 0)) * 1.01 + 0.01);
+}
 /** splat.wgsl draws nothing for splats centred beyond this NDC. */
 const SHADER_NDC_LIMIT = 1.5;
 /** The loose rule: keep splats centred up to this screen fraction past each edge. */

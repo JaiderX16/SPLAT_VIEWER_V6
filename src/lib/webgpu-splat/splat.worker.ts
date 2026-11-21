@@ -23,9 +23,11 @@ import {
   type SceneTransform,
   type WorkerToMain,
 } from './protocol';
-import { buildVoxelGrid, SURFACE_ALPHA } from './collision';
-import { footprintReaches, frustumTest, LOOSE_MARGIN, type FrustumParams } from './frustum';
+import { buildVoxelGrid, floorCutHeight, SURFACE_ALPHA } from './collision';
+import { alphaExtent, footprintReaches, frustumTest, LOOSE_MARGIN, type FrustumParams } from './frustum';
+import { buildOcclusionGrid, isOccluded, occlusionMap, splatArea, type OcclusionGrid } from './occlusion';
 import { budgetThreshold, hash01, PX_BIN_OFFSET, PX_BINS } from './budget';
+import { GIANT, giantSize, isNeedle, NEEDLE } from './noise';
 
 const ctx = self as unknown as DedicatedWorkerGlobalScope;
 
@@ -38,6 +40,8 @@ const SORT_BUCKETS = 65536;
 const NEAR_CULL = 0.05;
 /** Splats fainter than this are transparent to picking rays (the collision grid shares the threshold). */
 const PICK_MIN_ALPHA = SURFACE_ALPHA;
+/** Share of a splat's full footprint that its opacity (0–255) lets show (splat.wgsl shrinks faint quads alike). */
+const ALPHA_REACH = Float32Array.from({ length: 256 }, (_, a) => alphaExtent(a) / 2);
 
 // ─── State ──────────────────────────────────────────────────────────────────
 let loadToken = 0;
@@ -48,7 +52,15 @@ let positions = new Float32Array(0);
 let alphas = new Uint8Array(0);
 /** Per-splat world radius (largest 1σ axis), for screen-size LOD. */
 let radii = new Float32Array(0);
+/** Per-splat noise flags (noise.ts): NEEDLE set while parsing, GIANT once the whole scene is in. */
+let noise = new Uint8Array(0);
+/** Per-splat mean screen area (occlusion.ts), only while loading: the occlusion grid is built from it. */
+let areas = new Float32Array(0);
+/** Scene opacity per voxel for occlusion culling (hide-unseen); null until the whole scene is in. */
+let occluders: OcclusionGrid | null = null;
 let splatCount = 0;
+/** Floor cut height for the loaded scene, worked out once (collision.ts floorCutHeight). */
+let floorCut: { key: string; height: number } | null = null;
 
 let order: Uint32Array | null = new Uint32Array(0);
 let pendingSort: { viewProj: Float32Array; view: Float32Array; lod: LodParams; frustum: FrustumParams | null } | null = null;
@@ -122,6 +134,12 @@ function ensurePositionCapacity(splats: number) {
   const nextRadii = new Float32Array(capacity);
   nextRadii.set(radii.subarray(0, splatCount));
   radii = nextRadii;
+  const nextNoise = new Uint8Array(capacity);
+  nextNoise.set(noise.subarray(0, splatCount));
+  noise = nextNoise;
+  const nextAreas = new Float32Array(capacity);
+  nextAreas.set(areas.subarray(0, splatCount));
+  areas = nextAreas;
 }
 
 /** Parses whole records in `bytes` and returns the packed GPU words. */
@@ -208,6 +226,9 @@ function parseRecords(bytes: Uint8Array, alphaThreshold: number, affine: Affine 
 
     alphas[splatCount + kept] = alpha;
     radii[splatCount + kept] = Math.sqrt(Math.max(cov[0], cov[3], cov[5]));
+    areas[splatCount + kept] = splatArea(cov[0], cov[1], cov[2], cov[3], cov[4], cov[5]);
+    // shortcut: judged on the file's own scales; a non-uniform scene transform could make or unmake needles.
+    noise[splatCount + kept] = isNeedle(sx, sy, sz) ? NEEDLE : 0;
     const p = (splatCount + kept) * 3;
     positions[p] = x;
     positions[p + 1] = y;
@@ -241,6 +262,10 @@ async function load(url: string, alphaThreshold: number, transform: SceneTransfo
   positions = new Float32Array(0);
   alphas = new Uint8Array(0);
   radii = new Float32Array(0);
+  noise = new Uint8Array(0);
+  areas = new Float32Array(0);
+  occluders = null;
+  floorCut = null;
   splatCount = 0;
   const affine = buildAffine(transform);
 
@@ -309,9 +334,15 @@ async function load(url: string, alphaThreshold: number, transform: SceneTransfo
     positions = positions.slice(0, splatCount * 3);
     alphas = alphas.slice(0, splatCount);
     radii = radii.slice(0, splatCount);
+    noise = noise.slice(0, splatCount);
   }
+  // Giants are relative to this scene's own sizes, known only now.
+  const giant = giantSize(radii, splatCount);
+  for (let i = 0; i < splatCount; i++) if (radii[i] > giant) noise[i] |= GIANT;
   // Before 'done': the main thread only accepts a grid while its load is still pending.
   const grid = buildVoxelGrid(positions, alphas, splatCount);
+  occluders = grid && buildOcclusionGrid(grid, positions, alphas, areas, splatCount);
+  areas = new Float32Array(0);
   if (grid) post({ type: 'grid', grid }, [grid.bits.buffer]);
   post({ type: 'done', count: splatCount });
   runPendingSort();
@@ -343,6 +374,22 @@ function sort(viewProj: Float32Array, view: Float32Array, lod: LodParams, frustu
   let lodCulled = 0;
   /** Splats the loose margin would keep that cannot reach the screen. */
   let offscreen = 0;
+  /** In-view giant and needle splats skipped (noise.ts). */
+  let noisy = 0;
+  const hideNoise = lod.hideNoise;
+  /** In-view splats under the floor (floor cut). */
+  let underground = 0;
+  const cut = lod.cutBelow;
+  const cutAxis = cut ? cut.axis : 0, cutSign = cut ? cut.sign : 0;
+  let cutHeight = 0;
+  if (cut) {
+    const key = `${cut.axis},${cut.sign},${cut.floor},${cut.voxel},${n}`;
+    if (floorCut?.key !== key) floorCut = { key, height: floorCutHeight(p, n, cut.axis, cut.sign, cut.floor, cut.voxel) };
+    cutHeight = floorCut.height;
+  }
+  /** Splats hidden behind the first layer the camera sees (hide-unseen, occlusion.ts). */
+  let occluded = 0;
+  const occ = frustum && occluders ? occlusionMap(occluders, view, frustum.scaleX, frustum.scaleY, 1 + frustum.margin, frustum.travel) : null;
   const test = frustum && frustumTest(frustum);
   // reachesScreen's constants as locals: its fast path is inlined below.
   const tTravel = test ? test.travel : 0, tInner = test ? test.inner : 0, tCap = test ? test.cap : 0;
@@ -375,11 +422,23 @@ function sort(viewProj: Float32Array, view: Float32Array, lod: LodParams, frustu
       // reachesScreen (frustum.ts) inlined: a function call per splat costs ~25 % more sort time.
       const kx = (cx < 0 ? -cx : cx) * (cw - tTravel), ky = (cy < 0 ? -cy : cy) * (cw - tTravel);
       const inX = cw * (cw * tInner + tSlideX), inY = cw * (cw * tInner + tSlideY);
-      if ((kx > inX || ky > inY) && (kx > cw * (cw * tCap + tSlideX) || ky > cw * (cw * tCap + tSlideY) || !footprintReaches(cx, cy, cw, kx, ky, inX, inY, radii[i], test))) {
+      if ((kx > inX || ky > inY) && (kx > cw * (cw * tCap + tSlideX) || ky > cw * (cw * tCap + tSlideY) || !footprintReaches(cx, cy, cw, kx, ky, inX, inY, radii[i] * ALPHA_REACH[alphas[i]], test))) {
         if (loose) offscreen++;
         continue;
       }
     } else if (!loose) {
+      continue;
+    }
+    if (hideNoise && noise[i] !== 0) {
+      noisy++;
+      continue;
+    }
+    if (cut && cutSign * p[i * 3 + cutAxis] < cutHeight) {
+      underground++;
+      continue;
+    }
+    if (occ && isOccluded(occ, cx, cy, cw, radii[i] * ALPHA_REACH[alphas[i]])) {
+      occluded++;
       continue;
     }
 
@@ -440,7 +499,7 @@ function sort(viewProj: Float32Array, view: Float32Array, lod: LodParams, frustu
 
   const out = order;
   order = null; // lent to the main thread until it is recycled
-  post({ type: 'sorted', order: out, visible, sortMs: performance.now() - start, packed, lodCulled, offscreen }, [out.buffer]);
+  post({ type: 'sorted', order: out, visible, sortMs: performance.now() - start, packed, lodCulled, offscreen, noisy, occluded, underground }, [out.buffer]);
 }
 
 function runPendingSort() {
@@ -491,6 +550,7 @@ ctx.onmessage = (event: MessageEvent<MainToWorker>) => {
       abortController?.abort();
       abortController = null;
       splatCount = 0;
+      occluders = null;
       pendingSort = null;
       break;
     case 'sort':

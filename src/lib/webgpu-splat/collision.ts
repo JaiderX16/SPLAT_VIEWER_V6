@@ -78,6 +78,37 @@ export function buildVoxelGrid(positions: Float32Array, alphas: Uint8Array, coun
   return { origin, voxel, dims, bits };
 }
 
+/** Bajo el suelo, lo que queda por debajo de donde la densidad cae a esta fracción del pico del suelo. */
+const CUT_DENSITY = 0.002;
+/** …y sigue así este número de capas seguidas (un hueco suelto no corta). */
+const CUT_RUN = 3;
+
+/**
+ * Altura del corte "bajo el suelo" (a lo largo de `up`: sign × position[axis]). Un suelo de escaneo no es una
+ * lámina: tiene grosor y, si brilla, su reflejo vive en splats por debajo (en una sala medida, hasta ~40 cm).
+ * Se recorre hacia abajo el histograma de alturas (capas de ¼ de vóxel) desde el pico del suelo hasta que la
+ * densidad cae a CUT_DENSITY del pico durante CUT_RUN capas: lo de más abajo es ruido suelto. En la sala medida
+ * corta a 44 cm (la imagen no cambia); un margen fijo de 2 vóxeles (9 cm) se comía el reflejo del suelo.
+ */
+export function floorCutHeight(positions: Float32Array, count: number, axis: number, sign: number, floor: number, voxel: number) {
+  const bin = voxel / 4;
+  const bottom = floor - 40 * voxel;
+  const counts = new Uint32Array(Math.ceil((42 * voxel) / bin));
+  for (let i = 0; i < count; i++) {
+    const k = Math.floor((sign * positions[i * 3 + axis] - bottom) / bin);
+    if (k >= 0 && k < counts.length) counts[k]++;
+  }
+  // El pico del suelo, cerca de la cara de arriba de la capa detectada.
+  let peak = 0, at = counts.length - 1;
+  for (let k = Math.floor((36 * voxel) / bin); k < counts.length; k++) if (counts[k] > peak) [peak, at] = [counts[k], k];
+  let run = 0;
+  for (let k = at; k >= 0; k--) {
+    run = counts[k] < peak * CUT_DENSITY ? run + 1 : 0;
+    if (run === CUT_RUN) return bottom + (k + CUT_RUN) * bin;
+  }
+  return bottom;
+}
+
 /**
  * Consultas de colisión sobre la rejilla. Las alturas se miden a lo largo de `up`, que debe seguir un
  * eje de la escena (la rejilla está alineada con los ejes).
@@ -92,8 +123,8 @@ export class CollisionGrid {
   private readonly bits: Uint8Array;
   private readonly stride: Vec3;
   /** Eje vertical, su signo respecto a `up` y los dos ejes horizontales. */
-  private readonly axis: number;
-  private readonly sign: number;
+  readonly axis: number;
+  readonly sign: number;
   private readonly f0: number;
   private readonly f1: number;
 

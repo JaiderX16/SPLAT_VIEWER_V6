@@ -59,9 +59,14 @@ const EDITOR_COLORS = {
 export class EditorView {
   visible = false;
   theme: 'light' | 'dark' = 'dark';
-  /** Overview camera orbits the world origin at this distance (wheel-adjustable). */
+  /** Overview camera orbits the world origin at this distance (wheel-adjustable)… */
   private distance = 8;
+  /** …from this direction: yaw around `up` from `forward0`, pitch above the horizon (drag-adjustable). */
+  private yaw = 0;
+  private pitch = Math.atan2(1, 0.8);
   private readonly up: Vec3;
+  private readonly forward0: Vec3;
+  private readonly right0: Vec3;
   private readonly splatDraw: Draw;
   private readonly gridDraw: Draw;
   private readonly backgroundDraw: Draw;
@@ -75,6 +80,9 @@ export class EditorView {
 
   constructor(gpu: Gpu, up: Vec3) {
     this.up = up;
+    // Default: an elevated three-quarter vantage point, "above" according to the scene's up.
+    this.forward0 = vec3.normalize(vec3.sub([1, 0, 1], vec3.scale(up, vec3.dot([1, 0, 1], up))));
+    this.right0 = vec3.cross(up, this.forward0);
     this.splatDraw = draw(gpu, { label: 'editor-splats', shader: splatShader, vertices: 6, instances: 0, blend: 'premultiplied' });
     this.gridDraw = draw(gpu, {
       label: 'editor-grid',
@@ -136,6 +144,12 @@ export class EditorView {
     this.distance = Math.max(MIN_DISTANCE, Math.min(MAX_DISTANCE, this.distance * factor));
   }
 
+  /** Orbits the overview camera by a drag of (dx, dy) CSS px: free look at what the main camera draws. */
+  orbit(dx: number, dy: number) {
+    this.yaw -= dx * 0.01;
+    this.pitch = Math.max(-1.5, Math.min(1.5, this.pitch + dy * 0.01));
+  }
+
   /** World ray through a point of the overview, in physical pixels of the canvas. */
   ray(px: number, py: number, rect: PixelRect): Ray {
     const ndcX = ((px - rect.x) / rect.width) * 2 - 1;
@@ -186,9 +200,8 @@ export class EditorView {
 
   private updateCamera(rect: PixelRect) {
     this.aspect = rect.width / Math.max(rect.height, 1);
-    // Elevated three-quarter vantage point, "above" according to the scene's up.
-    const horizontal = vec3.normalize(vec3.sub([1, 0, 1], vec3.scale(this.up, vec3.dot([1, 0, 1], this.up))));
-    const dir = vec3.normalize(vec3.add(vec3.scale(horizontal, 0.8), vec3.scale(this.up, 1.0)));
+    const horizontal = vec3.add(vec3.scale(this.forward0, Math.cos(this.yaw)), vec3.scale(this.right0, Math.sin(this.yaw)));
+    const dir = vec3.add(vec3.scale(horizontal, Math.cos(this.pitch)), vec3.scale(this.up, Math.sin(this.pitch)));
     lookAt(vec3.scale(dir, this.distance), [0, 0, 0], this.up, this.view);
     perspective((OVERVIEW_FOV_DEG * Math.PI) / 180, this.aspect, 0.1, 500, this.proj);
     multiply(this.proj, this.view, this.viewProj);

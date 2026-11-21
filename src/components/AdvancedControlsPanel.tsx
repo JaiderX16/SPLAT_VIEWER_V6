@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, type RefObject } from 'react';
-import { Box, Grid3x3, Compass, EyeOff, Sun, Moon, X } from 'lucide-react';
+import { ArrowDownToLine, Box, Grid3x3, Compass, EyeOff, Sparkles, Sun, Moon, X } from 'lucide-react';
 import { Slider } from '@/components/ui/slider';
 import { SPLAT_BUDGETS, type CameraView, type LodQuality, type SplatViewerHandle } from '@/lib/viewerHandle';
 import { formatCompactNumber } from '@/lib/performanceBenchmark';
@@ -49,6 +49,8 @@ export default function AdvancedControlsPanel({
   const [hideUnseen, setHideUnseen] = useState(true);
   const [supportsHide, setSupportsHide] = useState(false);
   const [budget, setBudget] = useState<number | null>(null);
+  const [hideNoise, setHideNoise] = useState<boolean | null>(null);
+  const [cutUnderground, setCutUnderground] = useState<boolean | null>(null);
 
   // Sync state from viewer when panel becomes visible
   useEffect(() => {
@@ -63,6 +65,8 @@ export default function AdvancedControlsPanel({
     setSupportsHide(!!viewer.setHideUnseen);
     setHideUnseen(viewer.getHideUnseen?.() ?? false);
     setBudget(viewer.getSplatBudget?.() ?? null);
+    setHideNoise(viewer.getHideNoise?.() ?? null);
+    setCutUnderground(viewer.getCutUnderground?.() ?? null);
   }, [visible, viewerRef]);
 
   const handleApplyView = useCallback((view: CameraView) => {
@@ -222,7 +226,7 @@ export default function AdvancedControlsPanel({
         {supportsHide && (
           <>
             <button
-              title="Ocultar los splats que la cámara no ve: no se ordenan ni se dibujan"
+              title="Ocultar lo que la cámara no ve: lo que queda fuera de la pantalla y lo tapado por paredes y objetos (solo se dibuja la primera capa)"
               aria-pressed={hideUnseen}
               onClick={() => {
                 const next = !hideUnseen;
@@ -233,6 +237,46 @@ export default function AdvancedControlsPanel({
             >
               <EyeOff className="w-3.5 h-3.5" />
               Ocultar no visibles
+            </button>
+            <div className="w-px h-5 bg-black/[0.06] dark:bg-black/[0.20]" />
+          </>
+        )}
+
+        {/* Hide capture noise: giant blobs and long needles */}
+        {hideNoise !== null && (
+          <>
+            <button
+              title="Ocultar los splats gigantes y las agujas largas: ruido del escaneo que llena la pantalla de manchas y vetas"
+              aria-pressed={hideNoise}
+              onClick={() => {
+                const next = !hideNoise;
+                setHideNoise(next);
+                viewerRef.current?.setHideNoise?.(next);
+              }}
+              className="pill"
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              Sin splats grandes
+            </button>
+            <div className="w-px h-5 bg-black/[0.06] dark:bg-black/[0.20]" />
+          </>
+        )}
+
+        {/* Cut what lies under the floor: scan noise, never drawn from any angle */}
+        {cutUnderground !== null && (
+          <>
+            <button
+              title="Quitar lo que hay bajo el suelo de la escena (ruido del escaneo): no se dibuja desde ningún ángulo. Donde el suelo es semitransparente la imagen cambia algo"
+              aria-pressed={cutUnderground}
+              onClick={() => {
+                const next = !cutUnderground;
+                setCutUnderground(next);
+                viewerRef.current?.setCutUnderground?.(next);
+              }}
+              className="pill"
+            >
+              <ArrowDownToLine className="w-3.5 h-3.5" />
+              Recortar bajo el suelo
             </button>
             <div className="w-px h-5 bg-black/[0.06] dark:bg-black/[0.20]" />
           </>

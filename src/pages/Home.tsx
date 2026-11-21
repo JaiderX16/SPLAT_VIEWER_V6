@@ -396,7 +396,10 @@ const Home = forwardRef<SplatViewerRef, SplatViewerProps>(function Home({ showUI
       totalSplats: stats.splatCount,
       activeSplats,
       offscreenCulled: stats.offscreenCulled,
+      occlusionCulled: stats.occlusionCulled,
+      undergroundCulled: stats.undergroundCulled,
       lodCulled: stats.lodCulled,
+      noiseCulled: stats.noiseCulled,
       gpuMs: stats.gpuMs,
       drawCalls: stats.drawCalls,
       sortTimeMs: stats.sortTimeMs,
@@ -878,7 +881,7 @@ const Home = forwardRef<SplatViewerRef, SplatViewerProps>(function Home({ showUI
           {editorView && (
             <div className="absolute bottom-3 right-3 w-[30%] h-[30%] min-w-[120px] min-h-[120px] pointer-events-none border border-cyan-600 dark:border-cyan-300/60 rounded-[4px] z-[200]">
               <span className="absolute -top-8 right-0 glass rounded-full px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-cyan-900 dark:text-cyan-200 whitespace-nowrap">
-                {backend === 'webgpu' ? 'Vista editor · clic para navegar' : 'Vista editor'}
+                {backend === 'webgpu' ? 'Vista editor · arrastra para girar · clic para ir' : 'Vista editor'}
               </span>
             </div>
           )}

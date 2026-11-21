@@ -47,6 +47,12 @@ export interface SplatRendererStats {
   lodCulled: number;
   /** Splats hidden because no part of them reaches the screen (hide-unseen on). */
   offscreen: number;
+  /** In-view giant and needle splats skipped (hide-noise on). */
+  noisy: number;
+  /** Splats hidden behind the first layer the camera sees: walls hide the room behind (hide-unseen on). */
+  occluded: number;
+  /** In-view splats under the floor, dropped (floor cut on). */
+  underground: number;
   fps: number | null;
   /** GPU time of the last timed splat pass, ms (null without timestamp queries). */
   gpuMs: number | null;
@@ -156,7 +162,7 @@ export class SplatRenderer {
   private readonly onNavigate?: SplatRendererOptions['onNavigate'];
   private loop: FrameLoopHandle | null = null;
 
-  private press: { id: number; x: number; y: number; t: number; inMap: boolean; maxMove: number } | null = null;
+  private press: { id: number; x: number; y: number; t: number; inMap: boolean; maxMove: number; lastX: number; lastY: number } | null = null;
   private activePointers = 0;
   private navToken = 0;
   private groundProbing = false;
@@ -181,6 +187,15 @@ export class SplatRenderer {
   private lodQuality: LodQuality = 'balanced';
   /** Most splats drawn per view (0 = no limit); phones by default stay near what they can draw smoothly. */
   private splatBudget: number;
+  /** Skip giant and needle splats: capture noise that smears and streaks across the view (noise.ts). Off by default: it also softens some detail. */
+  private hideNoise = false;
+  private noisy = 0;
+  private occluded = 0;
+  /** Drop what lies under the scene's floor (scan noise), from any angle. Off by default: it changes the image where the floor is see-through. */
+  private cutUnderground = false;
+  private underground = 0;
+  /** The scene's collision grid, for its floor. */
+  private ground: CollisionGrid | null = null;
   private lodPacked = false;
   /** Reveal timeline: starts with the first streamed splats; `loadedAt`/`splatsAt` once known. */
   private reveal: { start: number; quantiles: Float32Array; loadedAt: number | null; splatsAt: number | null } | null = null;
@@ -190,6 +205,8 @@ export class SplatRenderer {
   private hideUnseen = true;
   private offscreen = 0;
   private lastSortPose: { eye: Vec3; forward: Vec3; scale: number } | null = null;
+  /** The last sort widened its margins for camera motion: once the camera rests, one more sort tightens them. */
+  private sortWidened = false;
   private forceSort = false;
   private readonly lastSortViewProj = new Float32Array(16);
 
@@ -388,6 +405,7 @@ export class SplatRenderer {
     this.dataSinceSort = false;
     this.reveal = null;
     this.controls.setCollider(null);
+    this.ground = null;
     this.needsRender = true;
   }
 
@@ -493,6 +511,28 @@ export class SplatRenderer {
     return this.splatBudget;
   }
 
+  /** Skip giant and needle splats (capture noise); off draws every splat. */
+  setHideNoise(enabled: boolean) {
+    this.hideNoise = enabled;
+    this.forceSort = true;
+    this.needsRender = true;
+  }
+
+  getHideNoise() {
+    return this.hideNoise;
+  }
+
+  /** Drop the splats under the floor (needs a detected floor); off draws them. */
+  setCutUnderground(enabled: boolean) {
+    this.cutUnderground = enabled;
+    this.forceSort = true;
+    this.needsRender = true;
+  }
+
+  getCutUnderground() {
+    return this.cutUnderground;
+  }
+
   getLodQuality() {
     return this.lodQuality;
   }
@@ -567,6 +607,9 @@ export class SplatRenderer {
       visibleCount: this.visibleCount,
       lodCulled: this.lodCulled,
       offscreen: this.offscreen,
+      noisy: this.noisy,
+      occluded: this.occluded,
+      underground: this.underground,
       fps: this.fps,
       gpuMs: this.gpuMs,
       frameMs: this.frameMs,
@@ -735,7 +778,9 @@ export class SplatRenderer {
       }
     }
     const streamingDue = this.dataSinceSort && now - this.lastSortAt > STREAMING_SORT_INTERVAL_MS;
-    if (!viewChanged && !streamingDue && !this.forceSort) return;
+    // Once the camera rests, one more sort drops the margins its motion added.
+    const settle = this.sortWidened && !viewChanged;
+    if (!viewChanged && !streamingDue && !this.forceSort && !settle) return;
     this.forceSort = false;
     this.lastSortViewProj.set(this.viewProj);
     this.lastSortAt = now;
@@ -751,8 +796,19 @@ export class SplatRenderer {
       minPx: this.pointCloud ? 0 : preset.minPx,
       minKeep: preset.minKeep,
       budget: this.splatBudget,
+      hideNoise: this.hideNoise,
+      cutBelow: this.floorCut(),
     };
-    this.post({ type: 'sort', viewProj: this.viewProj.slice(), view: this.view.slice(), lod, frustum: this.frustumParams() });
+    const frustum = this.frustumParams();
+    if (settle) this.sortWidened = false; // one per rest, even if the camera still drifts a hair
+    this.post({ type: 'sort', viewProj: this.viewProj.slice(), view: this.view.slice(), lod, frustum });
+  }
+
+  /** The floor the cut starts from, or null when it is off or the scene has no floor. */
+  private floorCut(): LodParams['cutBelow'] {
+    const g = this.ground;
+    if (!this.cutUnderground || !g || g.floor === null) return null;
+    return { axis: g.axis, sign: g.sign, floor: g.floor, voxel: g.voxel };
   }
 
   /**
@@ -764,6 +820,7 @@ export class SplatRenderer {
     const forward = vec3.normalize(vec3.sub(this.controls.getTarget(), eye));
     const last = this.lastSortPose;
     this.lastSortPose = { eye, forward, scale: this.proj[5] };
+    this.sortWidened = false;
     // Orthographic turns move content by the orbit distance, not an angle: keep the loose margin there.
     if (!this.hideUnseen || this.ortho) return null;
     let margin = FRUSTUM_MIN_MARGIN;
@@ -774,6 +831,8 @@ export class SplatRenderer {
       margin += FRUSTUM_LAG * (Math.tan(Math.min(turn, 1)) * Math.max(this.proj[0], this.proj[5]) + Math.max(0, last.scale / this.proj[5] - 1));
       travel = FRUSTUM_LAG * vec3.length(vec3.sub(eye, last.eye));
     }
+    // Moving widens both margins (occlusion most: a near wall slides over what is behind it).
+    this.sortWidened = margin > FRUSTUM_MIN_MARGIN || travel > 0;
     return { margin: Math.min(margin, LOOSE_MARGIN), travel, scaleX: this.proj[0], scaleY: this.proj[5] };
   }
 
@@ -837,6 +896,9 @@ export class SplatRenderer {
           this.lodPacked = msg.packed;
           this.lodCulled = msg.lodCulled;
           this.offscreen = msg.offscreen;
+          this.noisy = msg.noisy;
+          this.occluded = msg.occluded;
+          this.underground = msg.underground;
           this.lastSortMs = msg.sortMs;
           this.needsRender = true;
         }
@@ -851,7 +913,11 @@ export class SplatRenderer {
       }
       case 'grid':
         // Only for the load still in flight: a cleared scene's grid is stale.
-        if (this.pendingLoad) this.controls.setCollider(CollisionGrid.create(msg.grid, this.controls.up));
+        if (this.pendingLoad) {
+          this.ground = CollisionGrid.create(msg.grid, this.controls.up);
+          this.controls.setCollider(this.ground);
+          if (this.cutUnderground) this.forceSort = true;
+        }
         break;
       case 'error':
         this.failLoad(new Error(msg.message));
@@ -902,7 +968,7 @@ export class SplatRenderer {
     }
     const inMap = this.inEditor(e);
     this.press = this.activePointers === 1
-      ? { id: e.pointerId, x: e.clientX, y: e.clientY, t: performance.now(), inMap, maxMove: e.pointerType === 'mouse' ? CLICK_MAX_MOVE_PX : TAP_MAX_MOVE_PX }
+      ? { id: e.pointerId, x: e.clientX, y: e.clientY, t: performance.now(), inMap, maxMove: e.pointerType === 'mouse' ? CLICK_MAX_MOVE_PX : TAP_MAX_MOVE_PX, lastX: e.clientX, lastY: e.clientY }
       : null;
     if (inMap) {
       e.stopImmediatePropagation(); // the editor view is a minimap, not an orbit surface
@@ -914,7 +980,12 @@ export class SplatRenderer {
 
   private onPointerMove = (e: PointerEvent) => {
     if (this.press?.inMap && this.press.id === e.pointerId) {
+      // Dragging inside the editor view orbits its camera (a short click still navigates).
       e.stopImmediatePropagation();
+      this.editor.orbit(e.clientX - this.press.lastX, e.clientY - this.press.lastY);
+      this.press.lastX = e.clientX;
+      this.press.lastY = e.clientY;
+      this.needsRender = true;
       return;
     }
     if (this.activePointers === 0 && e.pointerType === 'mouse') {
