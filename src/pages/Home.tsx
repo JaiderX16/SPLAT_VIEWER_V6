@@ -835,8 +835,8 @@ const Home = forwardRef<SplatViewerRef, SplatViewerProps>(function Home({ showUI
                   setNavigationOpen(false);
                 }
               }}
-              title="Benchmark 2026"
-              aria-label="Benchmark"
+              title="Rendimiento"
+              aria-label="Rendimiento"
               aria-pressed={benchmarkVisible}
             >
               <Activity className="w-4 h-4" />
