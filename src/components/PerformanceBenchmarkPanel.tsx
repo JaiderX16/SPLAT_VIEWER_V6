@@ -37,6 +37,8 @@ export interface PerformanceBenchmarkInfo {
 interface PerformanceBenchmarkPanelProps {
   info: PerformanceBenchmarkInfo | null;
   visible: boolean;
+  /** Phones: open the full benchmark in the bottom sheet instead of over the scene. */
+  onExpand?: () => void;
 }
 
 interface MetricRowProps {
@@ -124,7 +126,7 @@ function SplatRing({ active, total }: { active: number | null; total: number }) 
   );
 }
 
-export default function PerformanceBenchmarkPanel({ info, visible }: PerformanceBenchmarkPanelProps) {
+export default function PerformanceBenchmarkPanel({ info, visible, onExpand }: PerformanceBenchmarkPanelProps) {
   // The compact pill by default; the full benchmark on demand.
   const [expanded, setExpanded] = useState(false);
   if (!visible) return null;
@@ -151,7 +153,7 @@ export default function PerformanceBenchmarkPanel({ info, visible }: Performance
         )}
         <button
           type="button"
-          onClick={() => setExpanded(true)}
+          onClick={() => (onExpand ? onExpand() : setExpanded(true))}
           title="Ver benchmark completo"
           aria-label="Ver benchmark completo"
           className="pill-btn shrink-0 bg-black/[0.04] hover:bg-black/[0.08] dark:bg-black/[0.20] dark:hover:bg-black/[0.32]"
@@ -194,6 +196,24 @@ export default function PerformanceBenchmarkPanel({ info, visible }: Performance
         </div>
       </div>
 
+      <BenchmarkDetails info={info} />
+    </section>
+  );
+}
+
+/** The full benchmark: metric rows and timing chips. The floating panel's body, or the mobile sheet's (embedded). */
+export function BenchmarkDetails({ info, embedded = false }: { info: PerformanceBenchmarkInfo | null; embedded?: boolean }) {
+  return (
+    <>
+      {/* The floating panel shows the target and the verdict in its header; the sheet has only a title there */}
+      {embedded && (
+        <div className="mb-3 flex items-center justify-between gap-3 px-1">
+          <p className="min-w-0 truncate text-[11px] text-[#46464b] dark:text-white/85">iPhone 13/14, A54/A55, Pixel 7a</p>
+          <span className={`${statusBadgeClass} ${statusTextClass[info?.score.overall.status ?? 'unknown']}`}>
+            {info?.score.overall.label ?? 'Sin escena'}
+          </span>
+        </div>
+      )}
       {info ? (
         <div className="panel-inner bg-black/[0.04] dark:bg-black/[0.20] p-2 space-y-2.5">
           <MetricRow
@@ -257,6 +277,6 @@ export default function PerformanceBenchmarkPanel({ info, visible }: Performance
           Carga una escena para medir el objetivo movil.
         </div>
       )}
-    </section>
+    </>
   );
 }

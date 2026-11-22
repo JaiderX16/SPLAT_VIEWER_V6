@@ -15,11 +15,14 @@ struct Camera {
   focal: vec2f,
   // x: splat scale, y: point-cloud mode (0/1), z: orthographic (0/1), w: tan(fov/2) clamp
   params: vec4f,
-  // w: reveal active (0/1); x, y, z unused
+  // x: editor view (0/1), drawing only what the main camera draws; w: reveal active (0/1); y, z unused
   lod: vec4f,
   // Reveal waves centred on the origin. x: point wave radius (splats beyond it are hidden),
   // y: splat wave radius (splats beyond it are dots), z: point fade-in band, w: grow band.
   reveal: vec4f,
+  // The main camera, for the editor view (lod.x): it mirrors that camera's own culling below.
+  mainView: mat4x4f,
+  mainProj: mat4x4f,
 }
 
 @group(0) @binding(0) var<uniform> camera: Camera;
@@ -60,6 +63,17 @@ fn vs_main(@builtin(vertex_index) vertexIndex: u32, @builtin(instance_index) ins
   let block = (index >> 8u) * 2u;
   let quantized = vec3f(f32(w0 & 0xFFFFu), f32(w0 >> 16u), f32(w1 & 0xFFFFu));
   let center = blocks[block].xyz + blocks[block + 1u].xyz * quantized / 65535.0;
+
+  // Editor view: skip what the main camera itself culls just below (behind it, far off screen). The sort keeps
+  // extra splats around the camera's plane for motion; drawn from outside they showed as a line through the camera.
+  if (camera.lod.x > 0.5) {
+    let mainPos = camera.mainView * vec4f(center, 1.0);
+    let mainClip = camera.mainProj * mainPos;
+    if (mainPos.z > -0.05 || any(abs(mainClip.xy / mainClip.w) > vec2f(1.5))) {
+      return culled();
+    }
+  }
+
   let viewPos = camera.view * vec4f(center, 1.0);
   let clip = camera.proj * viewPos;
   let ortho = camera.params.z > 0.5;

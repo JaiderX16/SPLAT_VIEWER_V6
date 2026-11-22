@@ -4,14 +4,7 @@ import splatShader from './splat.wgsl';
 import helpersShader from './helpers.wgsl';
 import overlayShader from './overlay.wgsl';
 import { cameraRay, lookAt, multiply, perspective, vec3, type Ray, type Vec3 } from './math';
-
-/** Picture-in-picture layout; Home draws the matching CSS frame (30%, min 120px, 12px margin). */
-const EDITOR_VIEW_LAYOUT = {
-  /** Fraction of the canvas width/height. */
-  FRACTION: 0.3,
-  MIN_CSS: 120,
-  MARGIN_CSS: 12,
-};
+import { EDITOR_VIEW, editorViewOnPhone } from '../viewerHandle';
 
 const GRID_DIVISIONS = 14;
 const GRID_HALF_SIZE = 7;
@@ -21,6 +14,8 @@ const MAX_DISTANCE = 60;
 
 export interface MainCameraState {
   view: Float32Array;
+  /** Projection: the overview draws only the splats this camera itself draws. */
+  proj: Float32Array;
   fovDeg: number;
   aspect: number;
   ortho: boolean;
@@ -129,12 +124,14 @@ export class EditorView {
     for (const d of [this.splatDraw, this.gridDraw, this.backgroundDraw, this.frustumDraw, this.gizmoDraw]) d.dispose();
   }
 
-  /** Rectangle in physical pixels, WebGPU convention (origin top-left). */
+  /** Rectangle in physical pixels, WebGPU convention (origin top-left). Same place as Home's frame (EDITOR_VIEW). */
   rect(width: number, height: number, dpr: number): PixelRect {
-    const w = Math.round(Math.max(EDITOR_VIEW_LAYOUT.MIN_CSS * dpr, width * EDITOR_VIEW_LAYOUT.FRACTION));
-    const h = Math.round(Math.max(EDITOR_VIEW_LAYOUT.MIN_CSS * dpr, height * EDITOR_VIEW_LAYOUT.FRACTION));
-    const m = Math.round(EDITOR_VIEW_LAYOUT.MARGIN_CSS * dpr);
-    return { x: Math.max(0, width - w - m), y: Math.max(0, height - h - m), width: Math.min(w, width), height: Math.min(h, height) };
+    const w = Math.round(Math.max(EDITOR_VIEW.MIN_CSS * dpr, width * EDITOR_VIEW.FRACTION));
+    const h = Math.round(Math.max(EDITOR_VIEW.MIN_CSS * dpr, height * EDITOR_VIEW.FRACTION));
+    const phone = editorViewOnPhone();
+    const x = phone ? Math.round(EDITOR_VIEW.PHONE_LEFT_CSS * dpr) : width - w - Math.round(EDITOR_VIEW.MARGIN_CSS * dpr);
+    const bottom = Math.round((phone ? EDITOR_VIEW.PHONE_BOTTOM_CSS : EDITOR_VIEW.MARGIN_CSS) * dpr);
+    return { x: Math.max(0, x), y: Math.max(0, height - h - bottom), width: Math.min(w, width), height: Math.min(h, height) };
   }
 
   /** Zooms the overview camera (wheel over the picture-in-picture). */
@@ -174,8 +171,10 @@ export class EditorView {
         viewport: [rect.width, rect.height],
         focal: [(this.proj[0] * rect.width) / 2, (this.proj[5] * rect.height) / 2],
         params: [main.splatScale, main.pointCloud ? 1 : 0, 0, Math.tan((OVERVIEW_FOV_DEG * Math.PI) / 360) * Math.max(1, this.aspect)],
-        lod: [0, 0, 0, 0],
-        reveal: [0, 0, 1, 1], // unused: lod.w = 0 keeps the overview out of the load reveal
+        lod: [1, 0, 0, 0], // x: mirror the main camera's culling; w = 0 keeps the overview out of the load reveal
+        reveal: [0, 0, 1, 1], // unused (lod.w = 0)
+        mainView: main.view,
+        mainProj: main.proj,
       },
     });
 

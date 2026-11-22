@@ -1,9 +1,10 @@
 import * as THREE from 'three';
+import { EDITOR_VIEW, editorViewOnPhone } from './viewerHandle';
 
 /**
  * "Editor view" picture-in-picture overlay, like the scene view in game engines.
  *
- * It renders a small secondary viewport (bottom-right corner) that shows the main
+ * It renders a small secondary viewport (bottom right; bottom left on phones) that shows the main
  * camera from a fixed isometric vantage point: a ground grid, a wireframe
  * frustum (the exact volume being rendered), and a camera gizmo. It also draws
  * the splat mesh in that viewport — since the mesh's render indexes are already
@@ -147,11 +148,12 @@ export class EditorOverlay {
 
     // three.js setViewport/setScissor take LOGICAL (CSS) pixels and multiply by
     // the pixel ratio internally — pass CSS pixels, not device pixels.
-    const pipW = Math.max(96, Math.round(cssW * 0.3));
-    const pipH = Math.max(96, Math.round(cssH * 0.3));
-    const margin = 12;
-    const pipX = cssW - pipW - margin; // right edge
-    const pipY = margin; // bottom edge (bottom-right corner)
+    // Same place as the WebGPU editor view and Home's frame (EDITOR_VIEW); three.js measures y from the bottom.
+    const pipW = Math.max(EDITOR_VIEW.MIN_CSS, Math.round(cssW * EDITOR_VIEW.FRACTION));
+    const pipH = Math.max(EDITOR_VIEW.MIN_CSS, Math.round(cssH * EDITOR_VIEW.FRACTION));
+    const phone = editorViewOnPhone();
+    const pipX = phone ? EDITOR_VIEW.PHONE_LEFT_CSS : cssW - pipW - EDITOR_VIEW.MARGIN_CSS;
+    const pipY = phone ? EDITOR_VIEW.PHONE_BOTTOM_CSS : EDITOR_VIEW.MARGIN_CSS;
 
     this.overviewCamera.aspect = pipW / pipH;
     this.overviewCamera.updateProjectionMatrix();

@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, Camera, Target, ArrowUp, Zap, Clock, Layers, Grid3X3, Maximize2 } from 'lucide-react';
+import { X, Camera, Target, ArrowUp, Zap, Clock, Layers, Grid3X3, Maximize2, Cpu } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 export interface SceneInfo {
@@ -20,12 +20,15 @@ interface InfoPanelProps {
   info: SceneInfo | null;
   visible: boolean;
   onToggle: () => void;
+  /** Only the contents, for the mobile sheet (which brings its own title and back button). */
+  embedded?: boolean;
 }
 
-const InfoPanel: React.FC<InfoPanelProps> = ({ info, visible, onToggle }) => {
+const InfoPanel: React.FC<InfoPanelProps> = ({ info, visible, onToggle, embedded = false }) => {
   if (!visible) return null;
 
   if (!info) {
+    if (embedded) return <p className="px-1 text-sm text-[#46464b] dark:text-white/85">No hay escena cargada</p>;
     return (
       <div className="absolute top-4 right-[5.5rem] md:top-6 md:right-[6.5rem] z-40 glass panel isolate text-[#46464b] dark:text-white/85 text-sm min-w-[280px]">
         <div className="flex items-center justify-between mb-2 pl-2">
@@ -40,25 +43,19 @@ const InfoPanel: React.FC<InfoPanelProps> = ({ info, visible, onToggle }) => {
   }
 
   const splatRenderPct = info.splatCount > 0 ? (info.splatRenderCount / info.splatCount * 100).toFixed(1) : '0.0';
+  const backendName = info.backend === 'webgpu' ? 'WebGPU' : 'WebGL';
 
-  return (
-    <div className="absolute top-4 right-[5.5rem] md:top-6 md:right-[6.5rem] z-40 glass panel isolate text-neutral-800 dark:text-white text-sm min-w-[280px]">
-      <div className="flex items-center justify-between mb-2 pl-2">
-        <span className="font-semibold text-neutral-900 dark:text-white flex items-center gap-2">
-          <Grid3X3 className="w-4 h-4 text-sky-900 dark:text-sky-100" />
-          Escena
-          {info.backend && (
-            <span className="rounded-full bg-black/[0.05] dark:bg-black/[0.20] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-neutral-800 dark:text-white/85">
-              {info.backend === 'webgpu' ? 'WebGPU' : 'WebGL'}
+  const rows = (
+      <div className={`panel-inner bg-black/[0.04] dark:bg-black/[0.20] p-3 space-y-2.5 ${embedded ? 'text-sm text-neutral-800 dark:text-white' : ''}`}>
+        {/* The floating panel shows the renderer as a badge in its header; the sheet has no room there */}
+        {embedded && info.backend && (
+          <div className="flex items-center justify-between">
+            <span className="text-[#46464b] dark:text-white/85 flex items-center gap-1.5">
+              <Cpu className="w-3.5 h-3.5" /> Motor
             </span>
-          )}
-        </span>
-        <Button onClick={onToggle} variant="ghost" size="icon" className="h-8 w-8 rounded-full text-[#46464b] dark:text-white/85 hover:text-neutral-900 dark:hover:text-white hover:bg-black/[0.06] dark:hover:bg-black/[0.14]">
-          <X className="w-4 h-4" />
-        </Button>
-      </div>
-
-      <div className="panel-inner bg-black/[0.04] dark:bg-black/[0.20] p-3 space-y-2.5">
+            <span className="font-mono text-xs">{backendName}</span>
+          </div>
+        )}
         <div className="flex items-center justify-between">
           <span className="text-[#46464b] dark:text-white/85 flex items-center gap-1.5">
             <Camera className="w-3.5 h-3.5" /> Position
@@ -121,6 +118,27 @@ const InfoPanel: React.FC<InfoPanelProps> = ({ info, visible, onToggle }) => {
           <span className="font-mono text-xs">{info.pointCloudMode ? 'On' : 'Off'}</span>
         </div>
       </div>
+  );
+
+  if (embedded) return rows;
+
+  return (
+    <div className="absolute top-4 right-[5.5rem] md:top-6 md:right-[6.5rem] z-40 glass panel isolate text-neutral-800 dark:text-white text-sm min-w-[280px]">
+      <div className="flex items-center justify-between mb-2 pl-2">
+        <span className="font-semibold text-neutral-900 dark:text-white flex items-center gap-2">
+          <Grid3X3 className="w-4 h-4 text-sky-900 dark:text-sky-100" />
+          Escena
+          {info.backend && (
+            <span className="rounded-full bg-black/[0.05] dark:bg-black/[0.20] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-neutral-800 dark:text-white/85">
+              {backendName}
+            </span>
+          )}
+        </span>
+        <Button onClick={onToggle} variant="ghost" size="icon" className="h-8 w-8 rounded-full text-[#46464b] dark:text-white/85 hover:text-neutral-900 dark:hover:text-white hover:bg-black/[0.06] dark:hover:bg-black/[0.14]">
+          <X className="w-4 h-4" />
+        </Button>
+      </div>
+      {rows}
     </div>
   );
 };

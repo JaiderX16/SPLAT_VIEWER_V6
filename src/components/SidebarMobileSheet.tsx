@@ -343,6 +343,10 @@ export interface SidebarMobileSheetProps {
   onSelectModel?: (name: string) => void;
   /** Scene uploader shown inside the sheet, in place of the list, after "Cargar escena". */
   uploader?: React.ReactNode;
+  /** A panel opened from the dock (scene info, navigation…), shown in place of the list: nothing floats over the scene. */
+  panel?: { title: string; content: React.ReactNode } | null;
+  /** The panel's back button. */
+  onPanelClose?: () => void;
   searchPlaceholder?: string;
   className?: string;
 }
@@ -354,6 +358,8 @@ const SidebarMobileSheet = ({
   activeId,
   onSelectModel,
   uploader,
+  panel,
+  onPanelClose,
   searchPlaceholder = 'Buscar escenas…',
   className = '',
 }: SidebarMobileSheetProps) => {
@@ -374,24 +380,28 @@ const SidebarMobileSheet = ({
 
   const baseSnaps = useSnapHeights(screenH);
 
-  // While the uploader shows, "half" is exactly its height: no empty space under it.
+  // What the sheet shows: the scene list, the uploader, or a panel from the dock.
+  const view = panel ? `panel:${panel.title}` : uploading ? 'upload' : 'list';
+  const fitted = view !== 'list';
+
+  // The uploader and the panels: "half" is exactly their height (up to "full"), no empty space under them.
   const sheetRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
-  const uploaderRef = useRef<HTMLDivElement>(null);
+  const fitRef = useRef<HTMLDivElement>(null);
   const [fitHeight, setFitHeight] = useState<number | null>(null);
   useLayoutEffect(() => {
-    const sheet = sheetRef.current, content = contentRef.current, inner = uploaderRef.current;
-    if (!uploading || !sheet || !content || !inner) return;
-    // The sheet's own chrome (grabber, header, gap, borders) plus the uploader's height.
+    const sheet = sheetRef.current, content = contentRef.current, inner = fitRef.current;
+    if (!fitted || !sheet || !content || !inner) return;
+    // The sheet's own chrome (grabber, header, gap, borders) plus the content's height.
     const measure = () => setFitHeight(sheet.offsetHeight - content.clientHeight + inner.offsetHeight);
     measure();
-    const observer = new ResizeObserver(measure); // text reflows when the sheet widens
+    const observer = new ResizeObserver(measure); // text reflows when the sheet widens; panels change
     observer.observe(inner);
     return () => observer.disconnect();
-  }, [uploading]);
+  }, [fitted, view]);
   const snapHeights = useMemo(
-    () => (uploading && fitHeight ? { ...baseSnaps, half: Math.min(fitHeight, baseSnaps.full) } : baseSnaps),
-    [uploading, fitHeight, baseSnaps]
+    () => (fitted && fitHeight ? { ...baseSnaps, half: Math.min(fitHeight, baseSnaps.full) } : baseSnaps),
+    [fitted, fitHeight, baseSnaps]
   );
 
   // Altura final aplicada al sheet
@@ -512,21 +522,23 @@ const SidebarMobileSheet = ({
         onPointerUp={handlePointerUp}
       />
 
-      {/* Barra de búsqueda, o título con vuelta a la lista mientras se carga una escena */}
-      {uploading ? (
+      {/* Barra de búsqueda, o título con flecha de vuelta (cargador y paneles) */}
+      {fitted ? (
         <div className="shrink-0 px-4">
           {/* Circle and title right on the sheet; equal 44px columns either side keep the title centered */}
           <div className="grid grid-cols-[2.75rem_1fr_2.75rem] items-center">
             <button
               type="button"
-              aria-label="Volver a las escenas"
-              title="Volver a las escenas"
-              onClick={() => setUploading(false)}
+              aria-label={panel ? 'Volver' : 'Volver a las escenas'}
+              title={panel ? 'Volver' : 'Volver a las escenas'}
+              onClick={panel ? onPanelClose : () => setUploading(false)}
               className="pill-btn bg-black/[0.04] hover:bg-black/[0.08] dark:bg-black/[0.20] dark:hover:bg-black/[0.32]"
             >
               <ArrowLeft className="h-4 w-4" />
             </button>
-            <h2 className="truncate text-center text-[16px] font-semibold text-neutral-900 dark:text-white">Cargar escena</h2>
+            <h2 className="truncate text-center text-[16px] font-semibold text-neutral-900 dark:text-white">
+              {panel ? panel.title : 'Cargar escena'}
+            </h2>
           </div>
         </div>
       ) : (
@@ -540,10 +552,10 @@ const SidebarMobileSheet = ({
         />
       )}
 
-      {/* Contenido – lista de modelos o cargador */}
+      {/* Contenido – lista de modelos, cargador o panel */}
       <div
         ref={contentRef}
-        key={uploading ? 'upload' : 'list'} // each view starts scrolled to the top
+        key={view} // each view starts scrolled to the top
         inert={!isExpanded ? true : undefined}
         className={`flex-1 overflow-y-auto mt-2 px-4 transition-[opacity,transform] duration-300 delay-75
           [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]
@@ -553,9 +565,9 @@ const SidebarMobileSheet = ({
               : 'opacity-0 translate-y-4 pointer-events-none'
           }`}
       >
-        {uploading ? (
-          // 16px under the URL row, like every other edge of the sheet
-          <div ref={uploaderRef} className="pb-4">{uploader}</div>
+        {fitted ? (
+          // 16px under the content, like every other edge of the sheet
+          <div ref={fitRef} className="pb-4">{panel ? panel.content : uploader}</div>
         ) : (
           <>
             {/* Header */}

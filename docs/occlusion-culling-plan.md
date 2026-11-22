@@ -277,7 +277,7 @@ fuera (fuera a 2 m / por z / órbita inicial / pegado al muro), con la misma ima
 Prueba nueva en `occlusion.check.ts`: un suelo opaco visto desde arriba oculta el 100 % de los manchones de 30 cm que hay
 1 m por debajo (antes 0 %) y el que asoma por su borde se sigue dibujando.
 
-## 10. "Recortar bajo el suelo" (interruptor, apagado por defecto)
+## 10. "Recortar bajo el suelo" (interruptor; encendido por defecto desde el 22-11-2026, igual que "Sin splats grandes")
 En la escena de la plaza (parque-constitucion, 589 K splats) la oclusión no oculta nada desde arriba, y con razón: el
 suelo del escaneo es semitransparente. Medido splat a splat en verticales junto a la estatua, deja pasar el 5–12 % de la
 luz (profundidad óptica 2,1–2,9; hace falta 5,5 para 1/255). Desde arriba, lo de debajo se ve en parte, sobre todo en los

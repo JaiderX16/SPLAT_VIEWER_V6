@@ -185,6 +185,17 @@ export const INTRO = {
   SPEED_SLOW: 0.8,
 };
 
+/**
+ * Editor view (picture-in-picture) layout, shared by both renderers and Home's CSS frame: 30 % of the canvas, at
+ * least 120 px. Desktop: bottom right, 12 px in. Phones (Home's layout under 768 px): bottom left, clear of the dock
+ * on the right and above the scene search pill (22 + 56 + 16 px).
+ */
+export const EDITOR_VIEW = { FRACTION: 0.3, MIN_CSS: 120, MARGIN_CSS: 12, PHONE_LEFT_CSS: 16, PHONE_BOTTOM_CSS: 94 };
+
+const phoneQuery = typeof window !== 'undefined' ? window.matchMedia?.('(max-width: 767px)') : undefined;
+/** True while Home lays the UI out for a phone (the same breakpoint as its `md:` classes). */
+export const editorViewOnPhone = () => phoneQuery?.matches ?? false;
+
 const DEFAULT_ELEVATION = (Math.atan2(-CAMERA.INITIAL_POSITION[1], Math.hypot(CAMERA.INITIAL_POSITION[0], CAMERA.INITIAL_POSITION[2])) * 180) / Math.PI;
 
 /** Posición, objetivo y distancia final de la cámara para un encuadre (o el de por defecto). */

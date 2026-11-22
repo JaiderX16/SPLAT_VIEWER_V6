@@ -49,7 +49,7 @@ optimizeDeps: {
 - **Progressive loading in a Web Worker** — the `.splat` file is streamed, parsed, and packed off the main thread; the first splats render while the rest downloads.
 - **Worker depth sort** — 16-bit counting sort; the order buffer ping-pongs between threads, so steady-state sorting allocates nothing.
 - **Hierarchical LOD** — an octree over the scene merges far splats smaller than 1–2 px into one splat that keeps their mass, center, color, and shape (presets: Alta / Media / Rápida, plus an optional splat budget per view).
-- **Hide what the camera can't see** — splats off screen or behind walls (a voxel occlusion grid) are skipped, per splat and per LOD node; optional switches hide scan noise (giant and needle splats) and cut what lies under the floor.
+- **Hide what the camera can't see** — splats off screen or behind walls (a voxel occlusion grid) are skipped, per splat and per LOD node; scan noise (giant and needle splats) and what lies under the floor are hidden too (on by default, switchable).
 - **Fluid camera** — damped orbit, pan, dolly, and pinch; cinematic intro with auto-orbit that stops on interaction.
 - **First-person navigation** — walk through the place at eye height (follows the ground), panorama look-around, or free fly; WASD, touch gestures, tap-to-go and gyroscope look (key `V` cycles modes).
 - **Cinematic reveal** — splats stream in as points and a wave grows them into the full scene, outward from the origin.

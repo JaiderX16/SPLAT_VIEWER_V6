@@ -3,7 +3,7 @@ import WebGPUSplatViewer from '@/components/WebGPUSplatViewer';
 import ProgressiveLoader, { type ProgressiveLoadState } from '@/components/ProgressiveLoader';
 import SceneUploader, { type LoadOptions } from '@/components/SceneUploader';
 import InfoPanel, { type SceneInfo } from '@/components/InfoPanel';
-import PerformanceBenchmarkPanel, { type PerformanceBenchmarkInfo } from '@/components/PerformanceBenchmarkPanel';
+import PerformanceBenchmarkPanel, { BenchmarkDetails, type PerformanceBenchmarkInfo } from '@/components/PerformanceBenchmarkPanel';
 import AdvancedControlsPanel from '@/components/AdvancedControlsPanel';
 import NavigationPanel from '@/components/NavigationPanel';
 import { estimateGaussianSplatVramMB, scoreBenchmark } from '@/lib/performanceBenchmark';
@@ -168,6 +168,9 @@ function forcedBackend(): RenderBackend | null {
 
 type BackendState = RenderBackend | 'detecting';
 
+/** Dock panels that phones show inside the bottom sheet. */
+type MobilePanel = 'info' | 'navigation' | 'advanced' | 'benchmark';
+
 interface SplatViewerProps {
   /** Show the sidebar, dock and panels (default). Off: just the scene; keyboard shortcuts still work. */
   showUI?: boolean;
@@ -221,6 +224,10 @@ const Home = forwardRef<SplatViewerRef, SplatViewerProps>(function Home({ showUI
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [mobileSheetState, setMobileSheetState] = useState<SheetState>('idle');
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  // Phones: the dock's panels open inside the bottom sheet instead of floating over the scene.
+  const [mobilePanel, setMobilePanel] = useState<MobilePanel | null>(null);
+  // The sheet closed (dragged down, a scene picked, the dock opened): its panel goes with it.
+  if (mobilePanel && mobileSheetState === 'idle') setMobilePanel(null);
   const [navigationOpen, setNavigationOpen] = useState(false);
   const [navigation, setNavigation] = useState<NavigationSettings>({ mode: 'orbit', speed: 1, gyro: false });
   const navigationRef = useRef(navigation);
@@ -417,7 +424,7 @@ const Home = forwardRef<SplatViewerRef, SplatViewerProps>(function Home({ showUI
   }, []);
 
   // Metric polling only runs when a scene is loaded and a panel is visible.
-  const panelsVisible = infoVisible || benchmarkVisible;
+  const panelsVisible = infoVisible || benchmarkVisible || mobilePanel === 'info' || mobilePanel === 'benchmark';
   useEffect(() => {
     if (!hasScene || !panelsVisible) return;
     updateSceneInfo();
@@ -594,6 +601,17 @@ const Home = forwardRef<SplatViewerRef, SplatViewerProps>(function Home({ showUI
     if (state !== 'idle') setToolsOpen(false);
   }, []);
 
+  const openMobilePanel = useCallback((panel: MobilePanel) => {
+    setMobilePanel(panel);
+    handleSheetStateChange('half'); // fits the panel's height, up to 85 % (then it scrolls)
+  }, [handleSheetStateChange]);
+
+  // The panel's back arrow: back to the scene, where the user opened it from.
+  const closeMobilePanel = useCallback(() => {
+    setMobilePanel(null);
+    setMobileSheetState('idle');
+  }, []);
+
   const handleDemoSelect = useCallback(async (sceneName: string) => {
     const scene = DEMO_SCENES.find((s) => s.name === sceneName);
     if (!scene) return;
@@ -641,6 +659,31 @@ const Home = forwardRef<SplatViewerRef, SplatViewerProps>(function Home({ showUI
     theme,
   };
 
+  const toggleSceneBackground = () => setSceneBgOverride(sceneLight ? 'dark' : 'light');
+
+  // What each dock panel shows inside the phone's bottom sheet.
+  const mobilePanels: Record<MobilePanel, { title: string; content: React.ReactNode }> = {
+    info: { title: 'Escena', content: <InfoPanel info={sceneInfo} visible onToggle={closeMobilePanel} embedded /> },
+    navigation: {
+      title: 'Navegación',
+      content: <NavigationPanel settings={navigation} onChange={applyNavigation} onClose={closeMobilePanel} embedded />,
+    },
+    advanced: {
+      title: 'Controles avanzados',
+      content: (
+        <AdvancedControlsPanel
+          viewerRef={viewerRef}
+          visible
+          onClose={closeMobilePanel}
+          sceneLight={sceneLight}
+          onToggleSceneBackground={toggleSceneBackground}
+          embedded
+        />
+      ),
+    },
+    benchmark: { title: 'Rendimiento', content: <BenchmarkDetails info={benchmarkInfo} embedded /> },
+  };
+
   return (
     <div ref={appRef} className={`msv${isFallbackFullscreen ? ' msv--fullscreen-fallback' : ''}`}>
 
@@ -658,8 +701,8 @@ const Home = forwardRef<SplatViewerRef, SplatViewerProps>(function Home({ showUI
             />
           )}
 
-          {/* ── Sidebar Mobile Sheet (hidden while the settings panel uses the bottom of the screen) ── */}
-          {isMobile && !advancedOpen && (
+          {/* ── Sidebar Mobile Sheet: scenes, the uploader and the dock's panels ── */}
+          {isMobile && (
             <SidebarMobileSheet
               sheetState={mobileSheetState}
               onSheetStateChange={handleSheetStateChange}
@@ -667,6 +710,8 @@ const Home = forwardRef<SplatViewerRef, SplatViewerProps>(function Home({ showUI
               activeId={activeScene}
               onSelectModel={handleDemoSelect}
               uploader={<SceneUploader onLoadFile={handleLoadFile} onLoadURL={handleLoadURL} isLoading={isLoading} />}
+              panel={mobilePanel ? mobilePanels[mobilePanel] : null}
+              onPanelClose={closeMobilePanel}
               searchPlaceholder="Buscar escenas…"
             />
           )}
@@ -715,7 +760,11 @@ const Home = forwardRef<SplatViewerRef, SplatViewerProps>(function Home({ showUI
             {navigationOpen && backend === 'webgpu' && (
               <NavigationPanel settings={navigation} onChange={applyNavigation} onClose={() => setNavigationOpen(false)} />
             )}
-            <PerformanceBenchmarkPanel info={benchmarkInfo} visible={benchmarkVisible} />
+            <PerformanceBenchmarkPanel
+              info={benchmarkInfo}
+              visible={benchmarkVisible}
+              onExpand={isMobile ? () => openMobilePanel('benchmark') : undefined}
+            />
           </>
         )}
       </main>
@@ -791,7 +840,7 @@ const Home = forwardRef<SplatViewerRef, SplatViewerProps>(function Home({ showUI
             </button>
             <button
               className="pill-btn"
-              onClick={() => setAdvancedOpen((v) => !v)}
+              onClick={() => (isMobile ? openMobilePanel('advanced') : setAdvancedOpen((v) => !v))}
               title="Controles avanzados"
               aria-label="Controles avanzados"
               aria-pressed={advancedOpen}
@@ -820,6 +869,10 @@ const Home = forwardRef<SplatViewerRef, SplatViewerProps>(function Home({ showUI
               <button
                 className="pill-btn"
                 onClick={() => {
+                  if (isMobile) {
+                    openMobilePanel('navigation');
+                    return;
+                  }
                   const next = !navigationOpen;
                   setNavigationOpen(next);
                   if (next) {
@@ -853,6 +906,10 @@ const Home = forwardRef<SplatViewerRef, SplatViewerProps>(function Home({ showUI
             <button
               className="pill-btn"
               onClick={() => {
+                if (isMobile) {
+                  openMobilePanel('info');
+                  return;
+                }
                 const next = !infoVisible;
                 setInfoVisible(next);
                 if (next) {
@@ -886,11 +943,14 @@ const Home = forwardRef<SplatViewerRef, SplatViewerProps>(function Home({ showUI
             </div>
           )}
 
-          {/* ── Editor view frame: matches the GPU picture-in-picture rect (30%, min 120px, 12px margin) ── */}
+          {/* ── Editor view frame: matches the GPU picture-in-picture rect (EDITOR_VIEW). Phones: bottom left, above
+              the search pill and clear of the dock; desktop: bottom right ── */}
           {editorView && (
-            <div className="absolute bottom-3 right-3 w-[30%] h-[30%] min-w-[120px] min-h-[120px] pointer-events-none border border-cyan-600 dark:border-cyan-300/60 rounded-[4px] z-[200]">
-              <span className="absolute -top-8 right-0 glass rounded-full px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-cyan-900 dark:text-cyan-200 whitespace-nowrap">
-                {backend === 'webgpu' ? 'Vista editor · arrastra para girar · clic para ir' : 'Vista editor'}
+            <div className="absolute bottom-[94px] left-4 w-[30%] h-[30%] min-w-[120px] min-h-[120px] pointer-events-none border border-cyan-600 dark:border-cyan-300/60 rounded-[4px] z-[200] md:bottom-3 md:left-auto md:right-3">
+              <span className="absolute -top-8 left-0 glass rounded-full px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-cyan-900 dark:text-cyan-200 whitespace-nowrap md:left-auto md:right-0">
+                Vista editor
+                {/* The how-to fits beside a desktop frame; on a phone it would run under the dock */}
+                {backend === 'webgpu' && <span className="hidden md:inline"> · arrastra para girar · clic para ir</span>}
               </span>
             </div>
           )}
@@ -900,7 +960,7 @@ const Home = forwardRef<SplatViewerRef, SplatViewerProps>(function Home({ showUI
             visible={advancedOpen}
             onClose={() => setAdvancedOpen(false)}
             sceneLight={sceneLight}
-            onToggleSceneBackground={() => setSceneBgOverride(sceneLight ? 'dark' : 'light')}
+            onToggleSceneBackground={toggleSceneBackground}
           />
         </>
       )}

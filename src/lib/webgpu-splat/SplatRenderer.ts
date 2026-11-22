@@ -188,12 +188,12 @@ export class SplatRenderer {
   private lodQuality: LodQuality = 'balanced';
   /** Most splats drawn per view (0 = no limit); phones by default stay near what they can draw smoothly. */
   private splatBudget: number;
-  /** Skip giant and needle splats: capture noise that smears and streaks across the view (noise.ts). Off by default: it also softens some detail. */
-  private hideNoise = false;
+  /** Skip giant and needle splats: capture noise that smears and streaks across the view (noise.ts). On by default (the user's choice); it also softens some detail. */
+  private hideNoise = true;
   private noisy = 0;
   private occluded = 0;
-  /** Drop what lies under the scene's floor (scan noise), from any angle. Off by default: it changes the image where the floor is see-through. */
-  private cutUnderground = false;
+  /** Drop what lies under the scene's floor (scan noise), from any angle. On by default (the user's choice); it changes the image where the floor is see-through. */
+  private cutUnderground = true;
   private underground = 0;
   /** The scene's collision grid, for its floor. */
   private ground: CollisionGrid | null = null;
@@ -270,7 +270,7 @@ export class SplatRenderer {
     this.clearColor = hexToClear(options.background ?? '#000000');
 
     const coarsePointer = window.matchMedia?.('(pointer: coarse)').matches ?? false;
-    this.splatBudget = coarsePointer ? 100_000 : 1_000_000;
+    this.splatBudget = coarsePointer ? 300_000 : 1_000_000;
     // Splatting is fill-rate bound: cap DPR lower on phones/tablets.
     this.surf = surface(gpu, canvas, { dpr: [1, coarsePointer ? 1.5 : 2], alphaMode: 'opaque' });
     this.surf.onResize(() => {
@@ -718,6 +718,8 @@ export class SplatRenderer {
         params: [this.splatScale, this.pointCloud ? 1 : 0, this.ortho ? 1 : 0, tanHalf * Math.max(1, w / Math.max(h, 1))],
         lod: [0, 0, 0, revealUniform ? 1 : 0],
         reveal: revealUniform ?? [0, 0, 1, 1],
+        mainView: this.view, // unused here (lod.x = 0): only the editor view mirrors the main camera
+        mainProj: this.proj,
       },
     });
     // Dark grid lines on a light scene background, light lines on a dark one.
@@ -736,6 +738,7 @@ export class SplatRenderer {
     if (this.editor.visible) {
       this.editor.render(frame, this.surf, this.editorRect(), {
         view: this.view,
+        proj: this.proj,
         fovDeg: this.fovDeg,
         aspect: w / Math.max(h, 1),
         ortho: this.ortho,

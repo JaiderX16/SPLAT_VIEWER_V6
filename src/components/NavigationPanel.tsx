@@ -128,9 +128,11 @@ interface NavigationPanelProps {
   settings: NavigationSettings;
   onChange: (patch: Partial<NavigationSettings>) => void;
   onClose: () => void;
+  /** Only the contents, for the mobile sheet (which brings its own title and back button). */
+  embedded?: boolean;
 }
 
-export default function NavigationPanel({ settings, onChange, onClose }: NavigationPanelProps) {
+export default function NavigationPanel({ settings, onChange, onClose, embedded = false }: NavigationPanelProps) {
   const touch = window.matchMedia?.('(pointer: coarse)').matches ?? false;
   const mode = NAVIGATION_MODES.find((m) => m.id === settings.mode) ?? NAVIGATION_MODES[0];
   const firstPerson = settings.mode !== 'orbit';
@@ -146,27 +148,8 @@ export default function NavigationPanel({ settings, onChange, onClose }: Navigat
     onChange({ gyro: !settings.gyro });
   };
 
-  return (
-    <section
-      aria-label="Navegación"
-      // pad 12 + list row r28 = 40
-      className="absolute top-4 right-[5.5rem] md:top-6 md:right-[6.5rem] z-40 glass isolate rounded-[40px] p-3 w-[min(340px,calc(100vw-7rem))] max-h-[calc(100%-2rem)] overflow-y-auto"
-    >
-      <div className="flex items-center justify-between mb-2 pl-2">
-        <span className="flex items-center gap-2 text-sm font-semibold text-neutral-900 dark:text-white">
-          <Compass className="w-4 h-4 text-sky-900 dark:text-sky-100" />
-          Navegación
-        </span>
-        <button
-          onClick={onClose}
-          className={`size-8 rounded-full inline-flex items-center justify-center text-[#46464b] dark:text-white/85 hover:text-neutral-900 dark:hover:text-white hover:bg-black/[0.06] dark:hover:bg-black/[0.14] transition-colors ${FOCUS}`}
-          title="Cerrar"
-          aria-label="Cerrar navegación"
-        >
-          <X className="w-4 h-4" />
-        </button>
-      </div>
-
+  const body = (
+    <>
       <div role="radiogroup" aria-label="Modo de navegación" className="space-y-1">
         {NAVIGATION_MODES.map((m) => {
           const active = m.id === settings.mode;
@@ -253,6 +236,32 @@ export default function NavigationPanel({ settings, onChange, onClose }: Navigat
           ))}
         </ul>
       </div>
+    </>
+  );
+
+  if (embedded) return body;
+
+  return (
+    <section
+      aria-label="Navegación"
+      // pad 12 + list row r28 = 40
+      className="absolute top-4 right-[5.5rem] md:top-6 md:right-[6.5rem] z-40 glass isolate rounded-[40px] p-3 w-[min(340px,calc(100vw-7rem))] max-h-[calc(100%-2rem)] overflow-y-auto"
+    >
+      <div className="flex items-center justify-between mb-2 pl-2">
+        <span className="flex items-center gap-2 text-sm font-semibold text-neutral-900 dark:text-white">
+          <Compass className="w-4 h-4 text-sky-900 dark:text-sky-100" />
+          Navegación
+        </span>
+        <button
+          onClick={onClose}
+          className={`size-8 rounded-full inline-flex items-center justify-center text-[#46464b] dark:text-white/85 hover:text-neutral-900 dark:hover:text-white hover:bg-black/[0.06] dark:hover:bg-black/[0.14] transition-colors ${FOCUS}`}
+          title="Cerrar"
+          aria-label="Cerrar navegación"
+        >
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+      {body}
     </section>
   );
 }
