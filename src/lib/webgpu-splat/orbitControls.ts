@@ -23,6 +23,16 @@ const FLY_SPEED = 0.25;
 const RUN_FACTOR = 3;
 /** Arrow-key turn rate, rad/s. */
 const TURN_SPEED = 1.6;
+/**
+ * One-finger look in first person, times the 1:1 "grab the world" rate. A phone's narrow view made 1:1 slow: a
+ * full-width swipe turned ~32° in interior. Doubled, it turns ~64°.
+ */
+const TOUCH_LOOK_GAIN = 2;
+/**
+ * Smoothing of a first-person drag-look, instead of `smoothing` (10, τ 100 ms): the view stays within ~1–2° of the
+ * finger and stops with it. Before, it trailed by up to ~5° and kept turning sideways after the finger lifted.
+ */
+const DRAG_LOOK_SMOOTHING = 30;
 /** First-person views may look almost straight up or down. */
 const LOOK_MIN_PHI = Math.PI * 0.03;
 const LOOK_MAX_PHI = Math.PI * 0.97;
@@ -140,6 +150,8 @@ export class OrbitControls {
   private element: HTMLElement | null = null;
   private readonly pointers = new Map<number, PointerState>();
   private pinchDistance = 0;
+  /** The angles follow a first-person drag (snappier smoothing) until they catch up with it. */
+  private dragLook = false;
   private readonly startListeners = new Set<() => void>();
   private dirty = true;
 
@@ -471,16 +483,18 @@ export class OrbitControls {
     else this.advanceFirstPerson(dtClamped);
 
     const k = 1 - Math.exp(-this.smoothing * dtClamped);
+    const kLook = this.dragLook ? 1 - Math.exp(-DRAG_LOOK_SMOOTHING * dtClamped) : k;
     let moved = this.dirty;
     this.dirty = false;
-    const step = (cur: number, goal: number, eps: number) => {
+    const step = (cur: number, goal: number, eps: number, rate = k) => {
       const d = goal - cur;
       if (Math.abs(d) <= eps) return goal;
       moved = true;
-      return cur + d * k;
+      return cur + d * rate;
     };
-    this.theta = step(this.theta, this.goalTheta, 1e-5);
-    this.phi = step(this.phi, this.goalPhi, 1e-5);
+    this.theta = step(this.theta, this.goalTheta, 1e-5, kLook);
+    this.phi = step(this.phi, this.goalPhi, 1e-5, kLook);
+    if (this.dragLook && this.theta === this.goalTheta && this.phi === this.goalPhi) this.dragLook = false;
     if (this.navMode === 'orbit') {
       this.radius = step(this.radius, this.goalRadius, 1e-5 * this.goalRadius);
       const tEps = 1e-5 * Math.max(1, this.radius);
@@ -695,12 +709,13 @@ export class OrbitControls {
     return this.element?.clientHeight || window.innerHeight || 1;
   }
 
-  private rotateBy(dx: number, dy: number) {
+  private rotateBy(dx: number, dy: number, touch = false) {
     const h = this.viewportHeight();
     if (this.navMode !== 'orbit') {
-      // Grab the world (like a panorama): the scene follows the pointer 1:1.
-      const perPixel = this.fovY / h;
+      // Grab the world (like a panorama): the scene follows the pointer 1:1, a finger faster (TOUCH_LOOK_GAIN).
+      const perPixel = (this.fovY / h) * (touch ? TOUCH_LOOK_GAIN : 1);
       this.lookBy(-dx * perPixel, dy * perPixel);
+      if (touch) this.dragLook = true; // mouse look keeps its usual easing
       return;
     }
     this.goalTheta -= ((2 * Math.PI * dx) / h) * this.rotateSpeed;
@@ -710,8 +725,10 @@ export class OrbitControls {
   private panBy(dx: number, dy: number) {
     const h = this.viewportHeight();
     if (this.navMode !== 'orbit') {
-      // Two-finger drag moves like a joystick: up = forward, sideways = strafe.
-      if (this.navMode !== 'look') this.moveBy(-dy, dx, 0, (Math.hypot(dx, dy) / h) * this.moveSpeed * 4);
+      // Two-finger drag moves like a joystick: up = forward, sideways = strafe. A mostly up/down drag walks
+      // straight: the fingers' sideways drift no longer slides the camera.
+      const side = Math.abs(dx) < 0.5 * Math.abs(dy) ? 0 : dx;
+      if (this.navMode !== 'look') this.moveBy(-dy, side, 0, (Math.hypot(side, dy) / h) * this.moveSpeed * 4);
       return;
     }
     const worldPerPixel = (2 * this.goalRadius * Math.tan(this.fovY / 2)) / h;
@@ -748,7 +765,7 @@ export class OrbitControls {
       const dx = e.clientX - p.x;
       const dy = e.clientY - p.y;
       if (p.pan && this.navMode === 'orbit') this.panBy(dx, dy);
-      else this.rotateBy(dx, dy);
+      else this.rotateBy(dx, dy, e.pointerType === 'touch');
       p.x = e.clientX;
       p.y = e.clientY;
       return;
