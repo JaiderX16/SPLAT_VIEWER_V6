@@ -401,3 +401,28 @@ Con el presupuesto de 100 K de los móviles la imagen se suaviza (26–35 dB fre
 
 Pruebas: `frustum.check.ts` (17,8 K grupos de 1 cm a 6 m, quieta y moviéndose: ninguno descartado con un splat que se
 dibuja; la prueba de un splat descartaba 305) y `occlusion.check.ts` (7 K grupos ocultos, todos con cada splat oculto).
+
+## 14. Junto a una cámara que se mueve: el límite del shader (22-11-2026)
+
+La vista editor mostraba, al mover la cámara, una línea de splats que la cruzaba de lado a lado: splats casi en el plano
+de la cámara y muy a los lados. `reachesScreen` divide por `cw − travel` y, para `cw ≤ travel`, los guardaba todos; la
+cámara principal los descartaba en el shader (detrás o fuera de pantalla), pero ocupaban la lista y el máximo de splats.
+Medido en el navegador moviéndose rápido: 44 K de 128 K splats de la lista en esa franja.
+
+Nueva cota, válida a cualquier profundidad (`pastShaderLimit` en frustum.ts, en línea en el bucle del worker y por nodo en
+`nodeReachesScreen`): el shader no dibuja ningún centro más allá de su límite NDC (`cap` = 1,5 + margen), y antes del
+siguiente sort la cámara solo se acerca o aleja `travel` y se desliza `slide`. Así que un centro con
+|c| > cap·(cw + travel) + slide nunca se dibuja. Con la cámara quieta es la misma prueba de siempre.
+
+| Sala, móvil 390×844 | Lista antes → ahora | Fuera de pantalla con máx. 300 K | Fusionados con máx. 300 K |
+|---|---|---|---|
+| Quieta | igual (655 K, 814 K, 501 K) | igual | igual |
+| travel 0,3 | −8 a −17 % | 66–90 % → 38–47 % | −11 a −28 % |
+| travel 0,6 | −10 a −21 % | 92–97 % → 70–82 % | −9 a −30 % |
+
+Lo que sigue fuera de pantalla al moverse es el margen para que nada aparezca de golpe antes del siguiente sort.
+La vista editor, además, aplica el mismo descarte que la cámara principal (`camera.lod.x` en splat.wgsl).
+
+Prueba nueva en `frustum.check.ts`: 48 K splats junto a una cámara que se mueve (de 0,05 m a 2·travel de profundidad, a
+cualquier distancia a los lados), 16 poses alcanzables por cámara: ninguno que se dibuje en alguna se descarta; antes se
+guardaban 40,5 K, ahora 21 K.

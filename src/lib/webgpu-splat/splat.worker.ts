@@ -479,9 +479,11 @@ function sort(viewProj: Float32Array, view: Float32Array, lod: LodParams, frustu
       const loose = cx >= -lim && cx <= lim && cy >= -lim && cy <= lim;
       if (test) {
         // reachesScreen (frustum.ts) inlined: a function call per splat costs ~25 % more sort time.
-        const kx = (cx < 0 ? -cx : cx) * (cw - tTravel), ky = (cy < 0 ? -cy : cy) * (cw - tTravel);
+        const ax = cx < 0 ? -cx : cx, ay = cy < 0 ? -cy : cy;
+        const capW = tCap * (cw + tTravel); // pastShaderLimit: also beside a moving camera
+        const kx = ax * (cw - tTravel), ky = ay * (cw - tTravel);
         const inX = cw * (cw * tInner + tSlideX), inY = cw * (cw * tInner + tSlideY);
-        if ((kx > inX || ky > inY) && (kx > cw * (cw * tCap + tSlideX) || ky > cw * (cw * tCap + tSlideY) || !footprintReaches(cx, cy, cw, kx, ky, inX, inY, radii[j] * ALPHA_REACH[alphas[j]], test))) {
+        if (ax > capW + tSlideX || ay > capW + tSlideY || ((kx > inX || ky > inY) && (kx > cw * (cw * tCap + tSlideX) || ky > cw * (cw * tCap + tSlideY) || !footprintReaches(cx, cy, cw, kx, ky, inX, inY, radii[j] * ALPHA_REACH[alphas[j]], test)))) {
           if (loose) offscreen++;
           continue;
         }

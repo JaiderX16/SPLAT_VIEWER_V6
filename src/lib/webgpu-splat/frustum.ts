@@ -45,6 +45,9 @@ export interface FrustumTest {
   planeX: number;
   planeY: number;
   stretch: number;
+  /** For `nodeReachesScreen`'s shader-limit bound: length of the normals of the planes |c| = cap·cw. */
+  capPlaneX: number;
+  capPlaneY: number;
 }
 
 export function frustumTest(f: FrustumParams): FrustumTest {
@@ -60,7 +63,21 @@ export function frustumTest(f: FrustumParams): FrustumTest {
     planeX: Math.sqrt(f.scaleX * f.scaleX + inner * inner),
     planeY: Math.sqrt(f.scaleY * f.scaleY + inner * inner),
     stretch: Math.sqrt(1 + (cap / f.scaleX) ** 2 + (cap / f.scaleY) ** 2),
+    capPlaneX: Math.hypot(f.scaleX, cap),
+    capPlaneY: Math.hypot(f.scaleY, cap),
   };
+}
+
+/**
+ * The shader draws no centre past its NDC limit `cap` (limit + margin), wherever the camera goes before the next sort:
+ * at most `travel` nearer or farther (cw ± travel) and `slide` sideways. So a centre with |c| > cap·(cw + travel) + slide
+ * never draws (|cx|, |cy| given as ax, ay). This holds at any depth. The bounds in reachesScreen divide by cw − travel
+ * and kept everything beside the camera (cw ≤ travel): during fast moves up to a third of the splat budget, all off screen.
+ * With the camera still (travel 0) it is the same as their own limit test.
+ */
+export function pastShaderLimit(ax: number, ay: number, cw: number, k: FrustumTest) {
+  const capW = k.cap * (cw + k.travel);
+  return ax > capW + k.slideX || ay > capW + k.slideY;
 }
 
 /**
@@ -72,8 +89,12 @@ export function frustumTest(f: FrustumParams): FrustumTest {
  * by more, it fails for all of them.
  */
 export function nodeReachesScreen(cx: number, cy: number, cw: number, half: number, radius: number, k: FrustumTest) {
+  const ax = cx < 0 ? -cx : cx, ay = cy < 0 ? -cy : cy;
+  // pastShaderLimit for the node's most central centre: |c| − cap·cw changes by at most half·capPlane across the node.
+  const slack = k.cap * k.travel;
+  if (ax - k.cap * cw > half * k.capPlaneX + slack + k.slideX || ay - k.cap * cw > half * k.capPlaneY + slack + k.slideY) return false;
   const near = cw - half;
-  if (near <= k.travel) return true; // reachesScreen keeps every splat the camera may reach
+  if (near <= k.travel) return true; // the bounds below divide by near − travel
   // The widest NDC a kept centre can have (the shader limit plus the slide, loosest at the node's nearest depth), and
   // the off-axis stretch there.
   let capX = k.cap, capY = k.cap, stretch = k.stretch;
@@ -83,7 +104,6 @@ export function nodeReachesScreen(cx: number, cy: number, cw: number, half: numb
     stretch = Math.sqrt(1 + (capX / k.scaleX) ** 2 + (capY / k.scaleY) ** 2);
   }
   const foot = radius * FOOTPRINT * stretch + k.travel;
-  const ax = cx < 0 ? -cx : cx, ay = cy < 0 ? -cy : cy;
   return ax - k.inner * cw <= half * k.planeX + k.scaleX * foot + k.travel * capX && ay - k.inner * cw <= half * k.planeY + k.scaleY * foot + k.travel * capY;
 }
 
@@ -94,8 +114,10 @@ export function nodeReachesScreen(cx: number, cy: number, cw: number, half: numb
  * |c| ≤ cw·limit + cw·margin + travel·scale + travel·|c|/cw  ⇔  |c|·(cw − travel) ≤ cw·(cw·(limit + margin) + travel·scale).
  */
 export function reachesScreen(cx: number, cy: number, cw: number, radius: number, k: FrustumTest) {
-  // splat.worker.ts inlines these first two tests in its sort loop: keep both in step.
-  const kx = (cx < 0 ? -cx : cx) * (cw - k.travel), ky = (cy < 0 ? -cy : cy) * (cw - k.travel);
+  // splat.worker.ts inlines these first tests in its sort loop: keep both in step.
+  const ax = cx < 0 ? -cx : cx, ay = cy < 0 ? -cy : cy;
+  if (pastShaderLimit(ax, ay, cw, k)) return false;
+  const kx = ax * (cw - k.travel), ky = ay * (cw - k.travel);
   const inX = cw * (cw * k.inner + k.slideX), inY = cw * (cw * k.inner + k.slideY);
   if (kx <= inX && ky <= inY) return true;
   if (kx > cw * (cw * k.cap + k.slideX) || ky > cw * (cw * k.cap + k.slideY)) return false;

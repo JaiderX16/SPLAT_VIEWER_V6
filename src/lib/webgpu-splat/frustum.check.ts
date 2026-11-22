@@ -5,7 +5,7 @@
  * pasa `reachesScreen` con el radio que usa el worker, también si la cámara se ha movido `travel` desde el
  * sort. Ejecutar: node src/lib/webgpu-splat/frustum.check.ts
  */
-import { alphaExtent, FOOTPRINT, frustumTest, nodeReachesScreen, reachesScreen, type FrustumParams } from './frustum.ts';
+import { alphaExtent, FOOTPRINT, footprintReaches, frustumTest, nodeReachesScreen, reachesScreen, type FrustumParams, type FrustumTest } from './frustum.ts';
 import { lookAt, multiply, perspective, type Vec3 } from './math.ts';
 
 let seed = 3;
@@ -38,6 +38,22 @@ function drawnBox(pos: Vec3, m: number[], alpha: number, view: Float32Array, pro
   return [nx - (2 * ex) / w, ny - (2 * ey) / h, nx + (2 * ex) / w, ny + (2 * ey) / h];
 }
 
+/** A random splat shape as the worker sees it: M = R·S (Σ = M·Mᵀ), its radius and its opacity. */
+function randomShape() {
+  const s = [0.002 + rand() ** 3 * 0.4, 0.002 + rand() ** 3 * 0.4, 0.001 + rand() ** 4 * 0.1];
+  let [qw, qx, qy, qz] = [rand() * 2 - 1, rand() * 2 - 1, rand() * 2 - 1, rand() * 2 - 1];
+  const l = Math.hypot(qw, qx, qy, qz);
+  qw /= l; qx /= l; qy /= l; qz /= l;
+  const m = [
+    (1 - 2 * (qy * qy + qz * qz)) * s[0], 2 * (qx * qy - qw * qz) * s[1], 2 * (qx * qz + qw * qy) * s[2],
+    2 * (qx * qy + qw * qz) * s[0], (1 - 2 * (qx * qx + qz * qz)) * s[1], 2 * (qy * qz - qw * qx) * s[2],
+    2 * (qx * qz - qw * qy) * s[0], 2 * (qy * qz + qw * qx) * s[1], (1 - 2 * (qx * qx + qy * qy)) * s[2],
+  ];
+  // The worker's radius: √ of the covariance's largest diagonal entry.
+  const radius = Math.sqrt(Math.max(m[0] ** 2 + m[1] ** 2 + m[2] ** 2, m[3] ** 2 + m[4] ** 2 + m[5] ** 2, m[6] ** 2 + m[7] ** 2 + m[8] ** 2));
+  return { m, radius, alpha: 1 + Math.floor(rand() * 255) };
+}
+
 let drawn = 0, dropped = 0, wrong = 0, total = 0;
 for (const [w, h] of [[1920, 1080], [390, 844]]) {
   const proj = perspective((50 * Math.PI) / 180, w / h, 0.05, 1000, new Float32Array(16));
@@ -56,18 +72,7 @@ for (const [w, h] of [[1920, 1080], [390, 844]]) {
     const params: FrustumParams = { margin: 0.05, travel, scaleX: proj[0], scaleY: proj[5] };
     for (let k = 0; k < 20000; k++) {
       const pos: Vec3 = [rand() * 12 - 6, rand() * 6 - 3, rand() * 12 - 6];
-      const s = [0.002 + rand() ** 3 * 0.4, 0.002 + rand() ** 3 * 0.4, 0.001 + rand() ** 4 * 0.1];
-      let [qw, qx, qy, qz] = [rand() * 2 - 1, rand() * 2 - 1, rand() * 2 - 1, rand() * 2 - 1];
-      const l = Math.hypot(qw, qx, qy, qz);
-      qw /= l; qx /= l; qy /= l; qz /= l;
-      const m = [
-        (1 - 2 * (qy * qy + qz * qz)) * s[0], 2 * (qx * qy - qw * qz) * s[1], 2 * (qx * qz + qw * qy) * s[2],
-        2 * (qx * qy + qw * qz) * s[0], (1 - 2 * (qx * qx + qz * qz)) * s[1], 2 * (qy * qz - qw * qx) * s[2],
-        2 * (qx * qz - qw * qy) * s[0], 2 * (qy * qz + qw * qx) * s[1], (1 - 2 * (qx * qx + qy * qy)) * s[2],
-      ];
-      // The worker's radius: √ of the covariance's largest diagonal entry.
-      const radius = Math.sqrt(Math.max(m[0] ** 2 + m[1] ** 2 + m[2] ** 2, m[3] ** 2 + m[4] ** 2 + m[5] ** 2, m[6] ** 2 + m[7] ** 2 + m[8] ** 2));
-      const alpha = 1 + Math.floor(rand() * 255);
+      const { m, radius, alpha } = randomShape();
       const box = drawnBox(pos, m, alpha, travel ? later : view, proj, w, h);
       const onScreen = !!box && box[0] < 1 && box[2] > -1 && box[1] < 1 && box[3] > -1;
       const [x, y, z] = pos;
@@ -84,6 +89,62 @@ for (const [w, h] of [[1920, 1080], [390, 844]]) {
 console.log(`splats delante de la cámara ${total}, con píxeles en pantalla ${drawn}, descartados ${dropped}, descartados con píxeles en pantalla ${wrong}`);
 if (wrong > 0) throw new Error(`frustum.ts: ${wrong} splats visibles descartados`);
 if (dropped === 0) throw new Error('frustum.ts: no descartó nada; la prueba no es sensible');
+
+// Junto a una cámara que se mueve: splats casi en su plano (de 0,05 m a 2·travel de profundidad) y a cualquier distancia
+// a los lados. reachesScreen los guardaba todos (cw ≤ travel): en movimientos rápidos, hasta un tercio del máximo de
+// splats sin un píxel en pantalla. Ahora solo los que pueden entrar en el límite del shader (pastShaderLimit). Ninguno
+// que se dibuje en alguna pose que la cámara puede alcanzar antes del siguiente sort (los 6 ejes a `travel` y 10
+// desplazamientos al azar) puede descartarse.
+/** reachesScreen before pastShaderLimit, to measure what the new bound drops. */
+function oldReaches(cx: number, cy: number, cw: number, radius: number, k: FrustumTest) {
+  const kx = Math.abs(cx) * (cw - k.travel), ky = Math.abs(cy) * (cw - k.travel);
+  const inX = cw * (cw * k.inner + k.slideX), inY = cw * (cw * k.inner + k.slideY);
+  if (kx <= inX && ky <= inY) return true;
+  if (kx > cw * (cw * k.cap + k.slideX) || ky > cw * (cw * k.cap + k.slideY)) return false;
+  return footprintReaches(cx, cy, cw, kx, ky, inX, inY, radius, k);
+}
+let band = 0, keptBefore = 0, keptNow = 0, bandWrong = 0;
+for (const [w, h] of [[1920, 1080], [390, 844]]) {
+  const proj = perspective((50 * Math.PI) / 180, w / h, 0.05, 1000, new Float32Array(16));
+  for (let cam = 0; cam < 8; cam++) {
+    const eye: Vec3 = [rand() * 4 - 2, rand() * 2 - 1, rand() * 4 - 2];
+    const target: Vec3 = [eye[0] + rand() * 2 - 1, eye[1] + rand() - 0.5, eye[2] + rand() * 2 - 1];
+    const view = lookAt(eye, target, [0, 1, 0], new Float32Array(16));
+    const vp = multiply(proj, view, new Float32Array(16));
+    const travel = 0.1 + rand() * 0.4;
+    const test = frustumTest({ margin: 0.05, travel, scaleX: proj[0], scaleY: proj[5] });
+    const right = [view[0], view[4], view[8]], up = [view[1], view[5], view[9]], forward = [-view[2], -view[6], -view[10]];
+    const later = Array.from({ length: 16 }, (_, i) => {
+      let dir = i < 6 ? [right, up, forward][i >> 1].map((v) => (i % 2 ? -v : v)) : [rand() * 2 - 1, rand() * 2 - 1, rand() * 2 - 1];
+      const dl = Math.hypot(dir[0], dir[1], dir[2]);
+      dir = dir.map((v) => (v / dl) * (i < 6 ? travel : travel * rand()));
+      const at = (p: Vec3): Vec3 => [p[0] + dir[0], p[1] + dir[1], p[2] + dir[2]];
+      return lookAt(at(eye), at(target), [0, 1, 0], new Float32Array(16));
+    });
+    for (let k = 0; k < 3000; k++) {
+      const depth = 0.05 + rand() * 2 * travel;
+      const lx = (rand() * 2 - 1) * 6 * rand() ** 2, ly = (rand() * 2 - 1) * 3 * rand() ** 2;
+      const pos = [0, 1, 2].map((a) => eye[a] + right[a] * lx + up[a] * ly + forward[a] * depth) as Vec3;
+      const { m, radius, alpha } = randomShape();
+      const [x, y, z] = pos;
+      const cx = vp[0] * x + vp[4] * y + vp[8] * z + vp[12], cy = vp[1] * x + vp[5] * y + vp[9] * z + vp[13];
+      const cw = vp[3] * x + vp[7] * y + vp[11] * z + vp[15];
+      const r = (radius * alphaExtent(alpha)) / 2;
+      band++;
+      const now = reachesScreen(cx, cy, cw, r, test);
+      if (now) keptNow++;
+      if (oldReaches(cx, cy, cw, r, test)) keptBefore++;
+      const draws = later.some((v) => {
+        const box = drawnBox(pos, m, alpha, v, proj, w, h);
+        return !!box && box[0] < 1 && box[2] > -1 && box[1] < 1 && box[3] > -1;
+      });
+      if (draws && !now) bandWrong++;
+    }
+  }
+}
+console.log(`junto a la cámara en movimiento: ${band} splats; se guardaban ${keptBefore}, ahora ${keptNow}; descartados que se dibujan ${bandWrong}`);
+if (bandWrong > 0) throw new Error(`frustum.ts: ${bandWrong} splats visibles junto a la cámara descartados`);
+if (keptNow >= keptBefore) throw new Error('frustum.ts: el límite del shader no descarta nada junto a la cámara; la prueba no es sensible');
 
 // Nodos del árbol LOD: nodeReachesScreen descarta un grupo solo si reachesScreen descarta cada uno de sus splats.
 // Grupos de 1 cm a 6 m alrededor de la cámara, también pegados a ella y a los bordes, con la cámara quieta y moviéndose.
