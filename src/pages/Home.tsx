@@ -54,15 +54,11 @@ import {
 // when WebGPU is unavailable or a non-.splat format is opened.
 const GaussianSplatViewer = lazy(() => import('@/components/GaussianSplatViewer'));
 
-// Escena local (carpeta model/), disponible en la biblioteca.
+// Escena local (carpeta model/): no está en git ni en la build, así que solo sale en desarrollo.
 export const DEFAULT_SCENE_URL = 'model/scene.splat';
 
 const DEMO_SCENES: Array<{ name: string; url: string; format: LoadOptions['format'] }> = [
-  {
-    name: 'Scene',
-    url: DEFAULT_SCENE_URL,
-    format: 'splat',
-  },
+  ...(import.meta.env.DEV ? [{ name: 'Scene', url: DEFAULT_SCENE_URL, format: 'splat' as const }] : []),
   {
     name: 'APATA FUENTE',
     url: 'https://huggingface.co/datasets/JaiderX16/MemorIA/resolve/main/APATA-FUENTEt.splat',
@@ -368,7 +364,8 @@ const Home = forwardRef<SplatViewerRef, SplatViewerProps>(function Home({ showUI
     const stats: ViewerStats | null = viewerRef.current?.getStats() ?? null;
     if (!stats) return;
 
-    const activeSplats = stats.renderCount > 0 ? stats.renderCount : stats.splatCount;
+    // WebGPU's count is exact (0 = nothing in view); GaussianSplats3D reports 0 until its first sort.
+    const activeSplats = stats.backend === 'webgpu' || stats.renderCount > 0 ? stats.renderCount : stats.splatCount;
     const canvasPixels = stats.renderWidth && stats.renderHeight ? stats.renderWidth * stats.renderHeight : null;
     // WebGPU reports its exact buffer sizes; add color target + swapchain (≈8 B/px).
     const estimatedVramMB = stats.gpuBufferMB !== null
@@ -529,6 +526,7 @@ const Home = forwardRef<SplatViewerRef, SplatViewerProps>(function Home({ showUI
     revokeActiveObjectUrl();
     activeObjectUrlRef.current = url;
     setShowUploader(false);
+    setMobileSheetState('idle');
     try {
       await loadScene(url, options, file.name);
     } finally {
@@ -542,6 +540,7 @@ const Home = forwardRef<SplatViewerRef, SplatViewerProps>(function Home({ showUI
   const handleLoadURL = useCallback(async (url: string, options: LoadOptions) => {
     revokeActiveObjectUrl();
     setShowUploader(false);
+    setMobileSheetState('idle');
     await loadScene(url, options);
   }, [loadScene, revokeActiveObjectUrl]);
 
@@ -576,7 +575,8 @@ const Home = forwardRef<SplatViewerRef, SplatViewerProps>(function Home({ showUI
 
   const autoLoadedRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!src || backend === 'detecting' || autoLoadedRef.current === src) return;
+    // Mientras otra escena carga, espera: loadScene descarta cargas solapadas y este `src` se perdería.
+    if (!src || backend === 'detecting' || isLoading || autoLoadedRef.current === src) return;
     autoLoadedRef.current = src;
     void loadScene(src, { progressiveLoad: true, framing: framingRef.current ?? undefined }).then(() => {
       // First-person modes probe the ground, so they wait for the whole scene.
@@ -586,7 +586,13 @@ const Home = forwardRef<SplatViewerRef, SplatViewerProps>(function Home({ showUI
       const f = framingRef.current;
       if (f?.eye) viewerRef.current?.standAt?.(f.eye, f.target);
     });
-  }, [src, backend, loadScene, initialNavigation, applyNavigation]);
+  }, [src, backend, isLoading, loadScene, initialNavigation, applyNavigation]);
+
+  // On phones the open sheet and the expanded dock overlap: opening one closes the other.
+  const handleSheetStateChange = useCallback((state: SheetState) => {
+    setMobileSheetState(state);
+    if (state !== 'idle') setToolsOpen(false);
+  }, []);
 
   const handleDemoSelect = useCallback(async (sceneName: string) => {
     const scene = DEMO_SCENES.find((s) => s.name === sceneName);
@@ -656,11 +662,11 @@ const Home = forwardRef<SplatViewerRef, SplatViewerProps>(function Home({ showUI
           {isMobile && !advancedOpen && (
             <SidebarMobileSheet
               sheetState={mobileSheetState}
-              onSheetStateChange={setMobileSheetState}
+              onSheetStateChange={handleSheetStateChange}
               models={DEMO_SCENES}
               activeId={activeScene}
               onSelectModel={handleDemoSelect}
-              onUpload={() => setShowUploader(true)}
+              uploader={<SceneUploader onLoadFile={handleLoadFile} onLoadURL={handleLoadURL} isLoading={isLoading} />}
               searchPlaceholder="Buscar escenas…"
             />
           )}
@@ -725,7 +731,10 @@ const Home = forwardRef<SplatViewerRef, SplatViewerProps>(function Home({ showUI
             <button
               type="button"
               className="pill-btn"
-              onClick={() => setToolsOpen((open) => !open)}
+              onClick={() => {
+                if (!toolsOpen) setMobileSheetState('idle');
+                setToolsOpen(!toolsOpen);
+              }}
               title={toolsOpen ? 'Cerrar herramientas' : 'Mostrar herramientas'}
               aria-label={toolsOpen ? 'Cerrar herramientas' : 'Mostrar herramientas'}
               aria-controls="viewer-tools-panel"

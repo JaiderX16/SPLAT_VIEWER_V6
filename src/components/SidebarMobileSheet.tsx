@@ -4,6 +4,7 @@ import React, {
   useCallback,
   useMemo,
   useEffect,
+  useLayoutEffect,
 } from 'react';
 import { Search, ArrowLeft, X, Upload } from 'lucide-react';
 import { type SceneModelItem } from './Sidebar';
@@ -16,13 +17,10 @@ export type SheetState = 'idle' | 'half' | 'full';
 
 const IDLE_HEIGHT = 56;
 const HALF_RATIO = 0.6;
-const FULL_RATIO = 0.9;
+// Grande: 85 % de la pantalla, pegada al borde inferior (sin redondeo abajo).
+const FULL_RATIO = 0.85;
 const IDLE_MAX_WIDTH = 320;
 const HALF_WIDTH_RATIO = 0.94;
-
-// Umbrales de snapping como fracción del rango posible
-const SNAP_TO_IDLE_THRESHOLD = 0.25; // < 25% del rango → idle
-const SNAP_TO_FULL_THRESHOLD = 0.75; // > 75% del rango → full
 
 // ============================================================================
 // HOOKS
@@ -118,7 +116,7 @@ function computeSheetGeometry(currentH: number, snapHeights: SnapHeights, screen
     const t = (currentH - halfH) / (fullH - halfH);
     width = lerp(halfW, fullW, t);
     radTop = 48;
-    radBottom = 48;
+    radBottom = lerp(48, 0, t); // reaches the screen's bottom edge: square corners there
     bottom = lerp((screenW - halfW) / 2, 0, t);
   }
 
@@ -127,12 +125,9 @@ function computeSheetGeometry(currentH: number, snapHeights: SnapHeights, screen
 
 /** Determina el estado de snap más cercano dada la altura de arrastre */
 function resolveSnapState(currentH: number, snapHeights: SnapHeights): SheetState {
-  const { idle: idleH, full: fullH } = snapHeights;
-  const range = fullH - idleH;
-  const ratio = (currentH - idleH) / range;
-
-  if (ratio < SNAP_TO_IDLE_THRESHOLD) return 'idle';
-  if (ratio > SNAP_TO_FULL_THRESHOLD) return 'full';
+  const { idle, half, full } = snapHeights;
+  if (currentH < (idle + half) / 2) return 'idle';
+  if (currentH > (half + full) / 2) return 'full';
   return 'half';
 }
 
@@ -194,7 +189,7 @@ const SearchBar = ({
   return (
     <div
       className={`shrink-0 transition-all duration-700 ${
-        isExpanded ? 'px-6' : 'px-0 py-0'
+        isExpanded ? 'px-4' : 'px-0 py-0'
       }`}
     >
       <div
@@ -275,7 +270,8 @@ const DragHandle = ({ isVisible, onPointerDown, onPointerMove, onPointerUp }: Dr
     role="separator"
     aria-hidden="true"
     className={`w-full flex items-center justify-center cursor-grab active:cursor-grabbing shrink-0 touch-none transition-all duration-300 ${
-      isVisible ? 'h-[24px] opacity-100' : 'h-0 opacity-0 pointer-events-none'
+      // 16px, the same as the bottom margin: the grabber sits in the gap above the search pill
+      isVisible ? 'h-4 opacity-100' : 'h-0 opacity-0 pointer-events-none'
     }`}
     onPointerDown={onPointerDown}
     onPointerMove={onPointerMove}
@@ -345,7 +341,8 @@ export interface SidebarMobileSheetProps {
   models?: SceneModelItem[];
   activeId?: string;
   onSelectModel?: (name: string) => void;
-  onUpload?: () => void;
+  /** Scene uploader shown inside the sheet, in place of the list, after "Cargar escena". */
+  uploader?: React.ReactNode;
   searchPlaceholder?: string;
   className?: string;
 }
@@ -356,8 +353,8 @@ const SidebarMobileSheet = ({
   models = [],
   activeId,
   onSelectModel,
-  onUpload,
-  searchPlaceholder = 'Search scenes…',
+  uploader,
+  searchPlaceholder = 'Buscar escenas…',
   className = '',
 }: SidebarMobileSheetProps) => {
   const { w: screenW, h: screenH } = useWindowSize();
@@ -365,12 +362,37 @@ const SidebarMobileSheet = ({
 
   const [dragHeight, setDragHeight] = useState<number | null>(null);
   const [busqueda, setBusqueda] = useState('');
+  const [uploading, setUploading] = useState(false);
+  // Back to the list whenever the sheet closes, however it was closed.
+  if (uploading && sheetState === 'idle') setUploading(false);
 
   const isDragging = useRef(false);
   const startYRef = useRef(0);
   const startHeightRef = useRef(0);
+  // Latest drag height for pointer-up (the state can lag a move behind).
+  const dragHeightRef = useRef<number | null>(null);
 
-  const snapHeights = useSnapHeights(screenH);
+  const baseSnaps = useSnapHeights(screenH);
+
+  // While the uploader shows, "half" is exactly its height: no empty space under it.
+  const sheetRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const uploaderRef = useRef<HTMLDivElement>(null);
+  const [fitHeight, setFitHeight] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    const sheet = sheetRef.current, content = contentRef.current, inner = uploaderRef.current;
+    if (!uploading || !sheet || !content || !inner) return;
+    // The sheet's own chrome (grabber, header, gap, borders) plus the uploader's height.
+    const measure = () => setFitHeight(sheet.offsetHeight - content.clientHeight + inner.offsetHeight);
+    measure();
+    const observer = new ResizeObserver(measure); // text reflows when the sheet widens
+    observer.observe(inner);
+    return () => observer.disconnect();
+  }, [uploading]);
+  const snapHeights = useMemo(
+    () => (uploading && fitHeight ? { ...baseSnaps, half: Math.min(fitHeight, baseSnaps.full) } : baseSnaps),
+    [uploading, fitHeight, baseSnaps]
+  );
 
   // Altura final aplicada al sheet
   const currentH = dragHeight !== null ? dragHeight : snapHeights[sheetState];
@@ -439,6 +461,7 @@ const SidebarMobileSheet = ({
       IDLE_HEIGHT,
       Math.min(snapHeights.full + 24, newH)
     );
+    dragHeightRef.current = clamped;
     setDragHeight(clamped);
   }, [snapHeights.full]);
 
@@ -448,13 +471,14 @@ const SidebarMobileSheet = ({
       isDragging.current = false;
       e.currentTarget.releasePointerCapture(e.pointerId);
 
-      setDragHeight((h) => {
-        if (h === null) return null;
-        const nextState = resolveSnapState(h, snapHeights);
-        onSheetStateChange(nextState);
-        if (nextState === 'idle') setBusqueda('');
-        return null;
-      });
+      // Outside a state updater: those run while rendering, where updating Home is not allowed.
+      const h = dragHeightRef.current;
+      dragHeightRef.current = null;
+      setDragHeight(null);
+      if (h === null) return;
+      const nextState = resolveSnapState(h, snapHeights);
+      onSheetStateChange(nextState);
+      if (nextState === 'idle') setBusqueda('');
     },
     [snapHeights, onSheetStateChange]
   );
@@ -463,10 +487,11 @@ const SidebarMobileSheet = ({
 
   return (
     <div
+      ref={sheetRef}
       role="dialog"
-      aria-modal="true"
-      aria-label="Scene library"
-      className={`absolute left-1/2 z-[900] bg-[#c7c7cc]/[0.72] dark:bg-[#1e1e20]/[0.78] backdrop-blur-[28px] border border-black/[0.06] dark:border-white/[0.14] overflow-hidden shadow-[0_-10px_50px_rgba(0,0,0,0.5)] flex flex-col pointer-events-auto ${transitionClass} ${className}`}
+      aria-label="Biblioteca de escenas"
+      // The same glass as the panels and the dock (the user found the stronger glass too dark here).
+      className={`absolute left-1/2 z-[900] glass overflow-hidden flex flex-col pointer-events-auto ${transitionClass} ${className}`}
       style={{
         bottom: `${geometry.bottom}px`,
         height: `${currentH}px`,
@@ -487,18 +512,38 @@ const SidebarMobileSheet = ({
         onPointerUp={handlePointerUp}
       />
 
-      {/* Barra de búsqueda */}
-      <SearchBar
-        isExpanded={isExpanded}
-        placeholder={searchPlaceholder}
-        value={busqueda}
-        onChange={setBusqueda}
-        onExpand={handleExpand}
-        onCollapse={handleCollapse}
-      />
+      {/* Barra de búsqueda, o título con vuelta a la lista mientras se carga una escena */}
+      {uploading ? (
+        <div className="shrink-0 px-4">
+          {/* Circle and title right on the sheet; equal 44px columns either side keep the title centered */}
+          <div className="grid grid-cols-[2.75rem_1fr_2.75rem] items-center">
+            <button
+              type="button"
+              aria-label="Volver a las escenas"
+              title="Volver a las escenas"
+              onClick={() => setUploading(false)}
+              className="pill-btn bg-black/[0.04] hover:bg-black/[0.08] dark:bg-black/[0.20] dark:hover:bg-black/[0.32]"
+            >
+              <ArrowLeft className="h-4 w-4" />
+            </button>
+            <h2 className="truncate text-center text-[16px] font-semibold text-neutral-900 dark:text-white">Cargar escena</h2>
+          </div>
+        </div>
+      ) : (
+        <SearchBar
+          isExpanded={isExpanded}
+          placeholder={searchPlaceholder}
+          value={busqueda}
+          onChange={setBusqueda}
+          onExpand={handleExpand}
+          onCollapse={handleCollapse}
+        />
+      )}
 
-      {/* Contenido – lista de modelos */}
+      {/* Contenido – lista de modelos o cargador */}
       <div
+        ref={contentRef}
+        key={uploading ? 'upload' : 'list'} // each view starts scrolled to the top
         inert={!isExpanded ? true : undefined}
         className={`flex-1 overflow-y-auto mt-2 px-4 transition-[opacity,transform] duration-300 delay-75
           [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]
@@ -508,46 +553,55 @@ const SidebarMobileSheet = ({
               : 'opacity-0 translate-y-4 pointer-events-none'
           }`}
       >
-        {/* Header */}
-        <div className="mb-3 px-1">
-          <span className="text-[10px] font-bold tracking-[0.15em] uppercase text-[#46464b] dark:text-white/85">
-            Scene Library
-          </span>
-        </div>
-
-        {/* Model list */}
-        <div className="space-y-1.5">
-          {filteredModels.map((model, index) => (
-            <ModelItem
-              key={model.name}
-              model={model}
-              index={index}
-              isActive={activeId === model.url}
-              onSelect={handleModelClick}
-            />
-          ))}
-          {q && filteredModels.length === 0 && (
-            <div className="text-center py-8 text-[#46464b] dark:text-white/85 text-sm">
-              No scenes found
+        {uploading ? (
+          // 16px under the URL row, like every other edge of the sheet
+          <div ref={uploaderRef} className="pb-4">{uploader}</div>
+        ) : (
+          <>
+            {/* Header */}
+            <div className="mb-3 px-1">
+              <span className="text-[10px] font-bold tracking-[0.15em] uppercase text-[#46464b] dark:text-white/85">
+                Biblioteca de escenas
+              </span>
             </div>
-          )}
-        </div>
 
-        {/* Upload button */}
-        <div className="mt-4 mb-4">
-          <button
-            onClick={() => {
-              onUpload?.();
-              onSheetStateChange('idle');
-            }}
-            className="w-full flex items-center justify-center gap-2 h-12 rounded-full bg-black/[0.04] dark:bg-black/[0.20] border border-black/[0.06] dark:border-white/[0.14] text-[#46464b] dark:text-white/85 hover:text-neutral-900 dark:hover:text-white hover:bg-black/[0.06] dark:hover:bg-black/[0.14] hover:border-black/[0.10] dark:hover:border-white/[0.28] transition-all duration-150"
-          >
-            <Upload className="w-4 h-4" />
-            <span className="text-xs font-semibold tracking-wider uppercase">
-              Load Scene
-            </span>
-          </button>
-        </div>
+            {/* Model list */}
+            <div className="space-y-1.5">
+              {filteredModels.map((model, index) => (
+                <ModelItem
+                  key={model.name}
+                  model={model}
+                  index={index}
+                  isActive={activeId === model.url}
+                  onSelect={handleModelClick}
+                />
+              ))}
+              {q && filteredModels.length === 0 && (
+                <div className="text-center py-8 text-[#46464b] dark:text-white/85 text-sm">
+                  Ninguna escena coincide
+                </div>
+              )}
+            </div>
+
+            {/* Upload button */}
+            {uploader && (
+              <div className="mt-4 mb-4">
+                <button
+                  onClick={() => {
+                    setUploading(true);
+                    onSheetStateChange('half'); // the uploader (drop zone + URL) fits at half height
+                  }}
+                  className="w-full flex items-center justify-center gap-2 h-12 rounded-full bg-black/[0.04] dark:bg-black/[0.20] border border-black/[0.06] dark:border-white/[0.14] text-[#46464b] dark:text-white/85 hover:text-neutral-900 dark:hover:text-white hover:bg-black/[0.06] dark:hover:bg-black/[0.14] hover:border-black/[0.10] dark:hover:border-white/[0.28] transition-all duration-150"
+                >
+                  <Upload className="w-4 h-4" />
+                  <span className="text-xs font-semibold tracking-wider uppercase">
+                    Cargar escena
+                  </span>
+                </button>
+              </div>
+            )}
+          </>
+        )}
       </div>
     </div>
   );

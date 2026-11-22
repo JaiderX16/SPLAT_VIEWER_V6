@@ -6,11 +6,11 @@ import { wgslVitePlugin } from '@vgpu/wgsl/loader-vite'
 
 // https://vite.dev/config/
 //
-// Cross-origin isolation headers enable `SharedArrayBuffer` (and therefore the
-// zero-copy Web-Worker splat sorting path in GaussianSplats3D). We use the
-// `credentialless` embedding policy so public cross-origin resources (e.g. the
-// HuggingFace demo scenes) keep loading without CORP headers, while same-origin
-// credentials still work.
+// Cross-origin isolation headers make `SharedArrayBuffer` available. Nothing uses it
+// today (GaussianSplats3D runs with `sharedMemoryForWorkers: false`); they are here to
+// try a multi-threaded sort in dev. Production (Vercel) does not send them: add them
+// there before depending on them. `credentialless` keeps public cross-origin resources
+// (e.g. the HuggingFace demo scenes) loading without CORP headers.
 const crossOriginIsolationHeaders = {
   'Cross-Origin-Opener-Policy': 'same-origin',
   'Cross-Origin-Embedder-Policy': 'credentialless',
@@ -18,14 +18,16 @@ const crossOriginIsolationHeaders = {
 
 // `vite build --mode lib` (npm run build:lib) packages the viewer as an npm library
 // in lib/: one ES entry plus lazy chunks, React left to the host app.
-export default defineConfig(({ mode }) => {
+export default defineConfig(({ command, mode }) => {
   // Read by tailwind.config.js: the host page brings its own preflight.
   if (mode === 'lib') process.env.SPLAT_LIB = '1';
   return {
   base: './',
   // wgslVitePlugin prepares every `.wgsl` import at build time (vgpu ShaderSource),
   // so the browser bundle never ships the WGSL parser.
-  plugins: mode === 'lib' ? [react(), wgslVitePlugin()] : [inspectAttr(), react(), wgslVitePlugin()],
+  // inspectAttr tags every JSX element with its source line (code-path="…") for the
+  // dev inspector: dev server only, never in a build.
+  plugins: [command === 'serve' && inspectAttr(), react(), wgslVitePlugin()],
   worker: {
     format: 'es',
   },

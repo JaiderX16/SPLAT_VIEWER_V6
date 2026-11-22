@@ -39,3 +39,7 @@ coverage
 
 # Modelos locales pesados
 model/
+
+# Mapas de dependencias generados (/claude-dependency-mapper): se regeneran, no se versionan
+obsidian-graph/
+PROJECT_MAP.md

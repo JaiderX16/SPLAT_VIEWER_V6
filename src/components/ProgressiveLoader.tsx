@@ -1,6 +1,6 @@
 import React from 'react';
-import { Progress } from '@/components/ui/progress';
-import { Loader2, Download, CheckCircle2, AlertCircle } from 'lucide-react';
+import { AlertCircle, Check } from 'lucide-react';
+import ProgressRing from '@/components/ProgressRing';
 
 export interface ProgressiveLoadState {
   percent: number;
@@ -54,33 +54,44 @@ const ProgressiveLoader: React.FC<ProgressiveLoaderProps> = ({ state, compact = 
     );
   }
 
-  return (
-    <div className="absolute inset-x-0 bottom-44 md:bottom-24 z-50 flex items-center justify-center pointer-events-none" role="status" aria-live="polite">
-      <div className="glass relative isolate flex items-center gap-3 h-12 pl-4 pr-5 rounded-full pointer-events-auto min-w-[300px] max-w-[90vw]">
-        {isError ? (
+  // An error needs its words: a toast above the bottom controls.
+  if (isError) {
+    return (
+      <div className="absolute inset-x-0 bottom-44 md:bottom-24 z-50 flex items-center justify-center pointer-events-none" role="status" aria-live="polite">
+        <div className="glass relative isolate flex items-center gap-3 h-12 pl-4 pr-5 rounded-full pointer-events-auto max-w-[90vw]">
           <AlertCircle className="w-4 h-4 text-red-900 dark:text-red-100 shrink-0" />
-        ) : isDone ? (
-          <CheckCircle2 className="w-4 h-4 text-emerald-900 dark:text-emerald-100 shrink-0" />
-        ) : isProcessing ? (
-          <Loader2 className="w-4 h-4 text-amber-900 dark:text-amber-200 animate-spin shrink-0" />
-        ) : (
-          <Download className="w-4 h-4 text-sky-900 dark:text-sky-100 shrink-0" />
-        )}
-
-        <span className={`text-sm font-medium truncate ${
-          isError ? 'text-red-900 dark:text-red-100' : isDone ? 'text-emerald-900 dark:text-emerald-100' : 'text-neutral-900 dark:text-white'
-        }`}>
-          {state.message}
-        </span>
-
-        <div className="flex-1 min-w-[80px] max-w-[140px]">
-          <Progress value={state.percent} className="h-1 rounded-full bg-black/[0.06] dark:bg-black/[0.20]" />
+          <span className="text-sm font-medium truncate text-red-900 dark:text-red-100">{state.message}</span>
         </div>
-
-        <span className="text-xs text-neutral-800 dark:text-white/85 font-mono shrink-0 w-14 text-right tabular-nums">
-          {state.percentLabel}
-        </span>
       </div>
+    );
+  }
+
+  // The download as a ring, in a glass circle like the menu's: top left (beside the sidebar on desktop).
+  // Under the panels (z-30), so a panel opened mid-load covers it instead of the other way round.
+  const known = state.percentLabel.endsWith('%');
+  const spinning = !isDone && (isProcessing || !known);
+  const arc = isDone
+    ? 'stroke-emerald-700 dark:stroke-emerald-300'
+    : isProcessing
+      ? 'stroke-amber-800 dark:stroke-amber-300'
+      : 'stroke-sky-700 dark:stroke-sky-300';
+  return (
+    // pad 6 + 44px circle r22 = 28 (.dock)
+    <div
+      role="status"
+      aria-live="polite"
+      aria-label={state.message}
+      title={state.message}
+      className="absolute left-4 top-4 z-30 glass dock isolate text-neutral-900 dark:text-white md:left-[352px] md:top-6"
+    >
+      <ProgressRing value={isDone ? 1 : spinning ? 0.25 : state.percent / 100} arcClassName={arc} spinning={spinning}>
+        {isDone ? (
+          <Check className="h-4 w-4 text-emerald-900 dark:text-emerald-100" />
+        ) : (
+          // "12.3 MB" when the size is unknown: smaller, to fit the circle
+          <span className={known ? undefined : 'text-[9px]'}>{state.percentLabel}</span>
+        )}
+      </ProgressRing>
     </div>
   );
 };

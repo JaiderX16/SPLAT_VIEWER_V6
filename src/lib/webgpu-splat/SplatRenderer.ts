@@ -7,7 +7,7 @@ import { EditorView, type PixelRect } from './EditorView';
 import { OrbitControls, type OrbitLimits } from './orbitControls';
 import { CollisionGrid } from './collision';
 import { LOOSE_MARGIN, type FrustumParams } from './frustum';
-import type { NavigationMode, NavigationSettings } from '../viewerHandle';
+import type { LodQuality, NavigationMode, NavigationSettings } from '../viewerHandle';
 import { REVEAL_QUANTILE_STEPS, type LodParams, type MainToWorker, type SceneTransform, type WorkerToMain } from './protocol';
 import { BLOCK_FLOATS, BLOCK_SPLATS, SPLAT_BYTES } from './pack';
 
@@ -15,7 +15,6 @@ import { BLOCK_FLOATS, BLOCK_SPLATS, SPLAT_BYTES } from './pack';
  * LOD presets: merge size, the radius (px) under which a tree node's merged splat (lod.ts) is drawn instead of
  * the splats under it. 0 merges only to fit the splat budget.
  */
-export type LodQuality = 'high' | 'balanced' | 'performance';
 const LOD_MERGE_PX: Record<LodQuality, number> = { high: 0, balanced: 1, performance: 2 };
 
 export interface SplatRendererOptions {

@@ -6,8 +6,8 @@ import { formatCompactNumber } from '@/lib/performanceBenchmark';
 
 const LOD_OPTIONS: Array<{ value: LodQuality; label: string; title: string }> = [
   { value: 'high', label: 'Alta', title: 'Sin LOD: todos los splats a calidad completa' },
-  { value: 'balanced', label: 'Media', title: 'LOD equilibrado: aligera los splats lejanos (< 1.25 px)' },
-  { value: 'performance', label: 'Rápida', title: 'LOD agresivo: máximo rendimiento en escenas grandes' },
+  { value: 'balanced', label: 'Media', title: 'LOD equilibrado: fusiona en un splat lo lejano que mide menos de 1 px' },
+  { value: 'performance', label: 'Rápida', title: 'LOD agresivo: fusiona hasta 2 px, máximo rendimiento en escenas grandes' },
 ];
 
 const VIEW_PRESETS: Array<{ view: CameraView; label: string; title: string }> = [

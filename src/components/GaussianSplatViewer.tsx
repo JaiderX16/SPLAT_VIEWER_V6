@@ -376,7 +376,7 @@ const GaussianSplatViewer = forwardRef<SplatViewerHandle, GaussianSplatViewerPro
       getLodQuality: () => 'high' as const,
       addSplatScene: async (path: string, options: SceneLoadOptions = {}) => {
         const viewer = viewerRef.current;
-        if (!viewer) throw new Error('Viewer not initialized');
+        if (!viewer) throw new Error('El visor aún no está listo');
 
         onLoadStartRef.current?.();
 
@@ -413,7 +413,7 @@ const GaussianSplatViewer = forwardRef<SplatViewerHandle, GaussianSplatViewerPro
       getStats: () => (viewerRef.current ? readStats(viewerRef.current) : null),
       removeSplatScene: async (index: number) => {
         const viewer = viewerRef.current;
-        if (!viewer) throw new Error('Viewer not initialized');
+        if (!viewer) throw new Error('El visor aún no está listo');
         return viewer.removeSplatScene(index);
       },
       setPointCloudMode: (enabled: boolean) => {

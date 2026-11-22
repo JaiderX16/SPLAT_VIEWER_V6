@@ -45,10 +45,11 @@ optimizeDeps: {
 
 ## Features
 
-- **WebGPU renderer** — one instanced draw per frame, 32-byte packed splats, on-demand rendering (an idle scene costs ~0 GPU).
+- **WebGPU renderer** — one instanced draw per frame, 20-byte packed splats (positions quantized per 256-splat block, half-float scales), on-demand rendering (an idle scene costs ~0 GPU).
 - **Progressive loading in a Web Worker** — the `.splat` file is streamed, parsed, and packed off the main thread; the first splats render while the rest downloads.
-- **Worker depth sort with frustum culling** — 16-bit counting sort; the order buffer ping-pongs between threads, so steady-state sorting allocates nothing.
-- **Distance LOD** — far splats covering a pixel or two are thinned to a stable fraction and enlarged to keep coverage (presets: Alta / Media / Rápida).
+- **Worker depth sort** — 16-bit counting sort; the order buffer ping-pongs between threads, so steady-state sorting allocates nothing.
+- **Hierarchical LOD** — an octree over the scene merges far splats smaller than 1–2 px into one splat that keeps their mass, center, color, and shape (presets: Alta / Media / Rápida, plus an optional splat budget per view).
+- **Hide what the camera can't see** — splats off screen or behind walls (a voxel occlusion grid) are skipped, per splat and per LOD node; optional switches hide scan noise (giant and needle splats) and cut what lies under the floor.
 - **Fluid camera** — damped orbit, pan, dolly, and pinch; cinematic intro with auto-orbit that stops on interaction.
 - **First-person navigation** — walk through the place at eye height (follows the ground), panorama look-around, or free fly; WASD, touch gestures, tap-to-go and gyroscope look (key `V` cycles modes).
 - **Cinematic reveal** — splats stream in as points and a wave grows them into the full scene, outward from the origin.
@@ -56,7 +57,7 @@ optimizeDeps: {
 - **Editor view** — picture-in-picture overview with grid, the camera frustum, and the splats currently being drawn.
 - **Advanced controls** — view presets (keys `0`–`6`), orthographic/perspective, FOV, grid and axes, scene background.
 - **Light / dark theme** — frosted pearl-gray light mode and smoke-glass dark mode; follows the OS until the user picks one (`localStorage` key `memoria-theme`).
-- **Benchmark HUD** — FPS, exact GPU buffer memory, active splats, draw calls, and render DPR scored against a 2026 mid-range mobile target.
+- **Performance pill** — FPS, and the active splats inside a ring that fills with the share of the scene on screen; it expands to the full benchmark (exact GPU buffer memory, draw calls, render DPR) scored against a 2026 mid-range mobile target.
 
 ## Architecture
 
@@ -76,10 +77,18 @@ src/
         ├── SplatRenderer.ts       vgpu device, buffers, frame loop, click navigation
         ├── splat.worker.ts        Streaming parser, packer, sorter, ray picking
         ├── splat.wgsl             EWA splat rasterizer
+        ├── pack.ts                20-byte GPU splat format
+        ├── lod.ts                 LOD octree and merged splats
+        ├── frustum.ts, occlusion.ts  What the camera can't see
+        ├── collision.ts           Voxel grid: floor, walls, walking
+        ├── noise.ts               Giant and needle splats
         ├── EditorView.ts          Picture-in-picture minimap
         ├── orbitControls.ts       Damped orbit controls and camera travel
+        ├── *.check.ts             Self-checks (npm test)
         └── protocol.ts, math.ts, helpers.wgsl, overlay.wgsl
 ```
+
+Design notes and measurements: [docs/occlusion-culling-plan.md](docs/occlusion-culling-plan.md).
 
 Both renderers implement `SplatViewerHandle` (`src/lib/viewerHandle.ts`), so the UI never touches renderer internals. Append `?renderer=webgl` to the URL to force the fallback for A/B comparisons.
 
@@ -87,10 +96,13 @@ Both renderers implement `SplatViewerHandle` (`src/lib/viewerHandle.ts`), so the
 
 ```bash
 npm install
-npm run dev      # http://localhost:3000
+npm run dev      # http://localhost:5182
 npm run build
 npm run lint
+npm test         # self-checks of the packing, LOD and culling math (Node 23.6+)
 ```
+
+In development the library also lists `model/scene.splat`, a local scene kept out of git.
 
 Shaders are prepared at build time by the `@vgpu/wgsl` Vite plugin. Validate them against a real WebGPU device with:
 
@@ -111,7 +123,7 @@ npx vgpu check src/lib/webgpu-splat/splat.wgsl --require-validation
 
 ## Demo scenes
 
-APATA FUENTE, Constitucion, Huamanmarca, and parque-constitucion (HuggingFace, JaiderX16); Nike Shoe, Train, and Plush Toy (HuggingFace, cakewalk).
+APATA FUENTE (and HD), Constitucion, Huamanmarca, Lago Azul, Taza, Torre, parque-constitucion, and Oficina (HuggingFace, JaiderX16); Nike Shoe, Train, and Plush Toy (HuggingFace, cakewalk).
 
 ## Credits
 

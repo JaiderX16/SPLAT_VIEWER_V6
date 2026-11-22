@@ -126,7 +126,7 @@ const WebGPUSplatViewer = forwardRef<SplatViewerHandle, WebGPUSplatViewerProps>(
       getLodQuality: () => rendererRef.current?.getLodQuality() ?? 'balanced',
       addSplatScene: async (path: string, options: SceneLoadOptions = {}) => {
         const ready = readyRef.current;
-        if (!ready) throw new Error('Viewer not initialized');
+        if (!ready) throw new Error('El visor aún no está listo');
         const renderer = await ready;
         const format = resolveFormat(options.format, path);
         if (format !== 'splat' && format !== 'auto') {

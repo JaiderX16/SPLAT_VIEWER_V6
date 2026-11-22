@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { Activity, Cpu, Gauge, Layers3, Maximize2, Minimize2, MonitorSmartphone, Workflow, Zap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import ProgressRing from '@/components/ProgressRing';
 import type { BenchmarkScore, BenchmarkStatus } from '@/lib/performanceBenchmark';
 import { formatCompactNumber } from '@/lib/performanceBenchmark';
 
@@ -108,71 +109,55 @@ function apiName(info: PerformanceBenchmarkInfo): string {
   return info.backend === 'webgpu' ? 'WebGPU' : info.webgl2 ? 'WebGL2' : 'WebGL';
 }
 
-/** One word for how smooth the frame rate is. */
-const smoothness: Record<BenchmarkStatus, string> = {
-  ideal: 'Fluido',
-  safe: 'Estable',
-  ok: 'Estable',
-  warn: 'Justo',
-  danger: 'Lento',
-  unknown: 'Midiendo',
-};
-
 const statusBadgeClass = 'shrink-0 rounded-full border border-black/[0.06] dark:border-white/[0.14] bg-black/[0.05] dark:bg-black/[0.20] px-3 py-1 text-[11px] font-semibold';
 
-/** 32px header circle that switches between the compact card and the full benchmark. */
-function SizeButton({ expanded, onClick }: { expanded: boolean; onClick: () => void }) {
-  const label = expanded ? 'Vista compacta' : 'Ver benchmark completo';
+/** The active-splat count in a ring that fills with the share of the scene being drawn. */
+function SplatRing({ active, total }: { active: number | null; total: number }) {
+  const share = active !== null && total > 0 ? Math.min(1, active / total) : 0;
+  const label = active === null
+    ? 'Sin escena'
+    : `${formatCompactNumber(active)} splats activos: ${Math.round(share * 100)} % de la escena en pantalla`;
   return (
-    <Button
-      onClick={onClick}
-      variant="ghost"
-      size="icon"
-      title={label}
-      aria-label={label}
-      className="h-8 w-8 shrink-0 rounded-full text-[#46464b] dark:text-white/85 hover:text-neutral-900 dark:hover:text-white hover:bg-black/[0.06] dark:hover:bg-black/[0.14]"
-    >
-      {expanded ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
-    </Button>
+    <ProgressRing value={share} label={label}>
+      {active === null ? '—' : formatCompactNumber(active)}
+    </ProgressRing>
   );
 }
 
 export default function PerformanceBenchmarkPanel({ info, visible }: PerformanceBenchmarkPanelProps) {
-  // The compact "Rendimiento" card by default; the full benchmark on demand.
+  // The compact pill by default; the full benchmark on demand.
   const [expanded, setExpanded] = useState(false);
   if (!visible) return null;
 
   if (!expanded) {
-    const fps = info?.score.fps.status ?? 'unknown';
     return (
-      // pad 12 + inset group r22 = 34
+      // pad 6 + 44px circle r22 = 28 (.dock). Phones: centered between the loading circle and the menu; desktop: beside the dock.
       <section
         aria-label="Rendimiento"
-        className="absolute right-[5.5rem] top-4 z-[240] w-[280px] glass rounded-[34px] p-3 isolate text-neutral-900 dark:text-white md:top-6 md:right-[6.5rem]"
+        // w-max: at left 50% the pill would only get the right half of the screen and wrap its text
+        className="absolute left-1/2 top-4 z-[240] w-max -translate-x-1/2 glass dock items-center gap-3 isolate text-neutral-900 dark:text-white md:left-auto md:top-6 md:right-[6.5rem] md:translate-x-0"
       >
-        <div className="mb-3 flex items-center justify-between gap-2 pl-2">
-          <div className="flex min-w-0 items-center gap-2">
-            <Activity className="h-4 w-4 shrink-0 text-sky-900 dark:text-sky-100" />
-            <h2 className="truncate text-sm font-semibold">Rendimiento</h2>
-          </div>
-          <div className="flex shrink-0 items-center gap-1">
-            <span className={`${statusBadgeClass} ${statusTextClass[info ? fps : 'unknown']}`}>{info ? smoothness[fps] : 'Sin escena'}</span>
-            <SizeButton expanded={false} onClick={() => setExpanded(true)} />
-          </div>
-        </div>
-
+        <SplatRing active={info ? info.activeSplats : null} total={info?.totalSplats ?? 0} />
         {info ? (
-          // pad 8 + 28px circle r14 = 22
-          <div className="rounded-[22px] bg-black/[0.04] dark:bg-black/[0.20] p-2 space-y-2.5">
-            <MetricRow icon={<Gauge className="h-3.5 w-3.5" />} label="FPS" value={formatFps(info.fps)} status={fps} />
-            <MetricRow icon={<Layers3 className="h-3.5 w-3.5" />} label="Splats activos" value={formatCompactNumber(info.activeSplats)} status={info.score.splats.status} />
-          </div>
+          <p className="flex items-baseline gap-1.5 px-1">
+            {/* 3 digits wide, so the pill does not jitter as the rate changes */}
+            <span className="w-[3ch] text-right font-mono text-base font-semibold tabular-nums">
+              {info.fps === null ? '—' : Math.round(info.fps)}
+            </span>
+            <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#46464b] dark:text-white/85">FPS</span>
+          </p>
         ) : (
-          <div className="flex items-center gap-2 rounded-[22px] bg-black/[0.04] dark:bg-black/[0.20] px-3 py-3 text-sm text-neutral-800 dark:text-white/85">
-            <Gauge className="h-4 w-4 shrink-0 text-[#46464b] dark:text-white/85" />
-            Carga una escena para medir.
-          </div>
+          <p className="px-1 text-sm font-medium text-neutral-800 dark:text-white/85">Sin escena</p>
         )}
+        <button
+          type="button"
+          onClick={() => setExpanded(true)}
+          title="Ver benchmark completo"
+          aria-label="Ver benchmark completo"
+          className="pill-btn shrink-0 bg-black/[0.04] hover:bg-black/[0.08] dark:bg-black/[0.20] dark:hover:bg-black/[0.32]"
+        >
+          <Maximize2 className="h-4 w-4" />
+        </button>
       </section>
     );
   }
@@ -196,7 +181,16 @@ export default function PerformanceBenchmarkPanel({ info, visible }: Performance
           <span className={`${statusBadgeClass} ${statusTextClass[info?.score.overall.status ?? 'unknown']}`}>
             {info?.score.overall.label ?? 'Sin escena'}
           </span>
-          <SizeButton expanded onClick={() => setExpanded(false)} />
+          <Button
+            onClick={() => setExpanded(false)}
+            variant="ghost"
+            size="icon"
+            title="Vista compacta"
+            aria-label="Vista compacta"
+            className="h-8 w-8 shrink-0 rounded-full text-[#46464b] dark:text-white/85 hover:text-neutral-900 dark:hover:text-white hover:bg-black/[0.06] dark:hover:bg-black/[0.14]"
+          >
+            <Minimize2 className="h-4 w-4" />
+          </Button>
         </div>
       </div>
 
