@@ -176,7 +176,7 @@ interface SplatViewerProps {
   showUI?: boolean;
   /** Scene to load on mount (e.g. an embedded viewer with `showUI={false}`). */
   src?: string;
-  /** Navigation once `src` has loaded: 'orbit' circles an exterior, 'interior' walks it at head height, 'look' stands inside. */
+  /** Navigation once `src` has loaded: 'orbit' circles an exterior, 'interior' walks it at head height. */
   initialNavigation?: NavigationMode;
   /** Encuadre de `src`: punto que rodea la cámara, distancia y ángulos (solo WebGPU). */
   framing?: CameraFraming;

@@ -11,13 +11,12 @@ export type CameraView = 'front' | 'back' | 'left' | 'right' | 'top' | 'bottom' 
 export type SceneFormat = 'auto' | 'ply' | 'splat' | 'ksplat' | 'spz';
 
 /**
- * How the user moves through the scene: orbit around it, or explore it in first
- * person (interior at head height with collisions, walk on the ground, panorama
- * look-around, free fly).
+ * How the user moves through the scene: orbit around it, or walk it in first
+ * person (interior: at head height, with collisions).
  */
-export type NavigationMode = 'orbit' | 'interior' | 'walk' | 'look' | 'fly';
+export type NavigationMode = 'orbit' | 'interior';
 /** Order of the navigation panel and of the `V` shortcut. */
-export const NAVIGATION_CYCLE: NavigationMode[] = ['interior', 'walk', 'look', 'fly', 'orbit'];
+export const NAVIGATION_CYCLE: NavigationMode[] = ['interior', 'orbit'];
 
 export interface NavigationSettings {
   mode: NavigationMode;

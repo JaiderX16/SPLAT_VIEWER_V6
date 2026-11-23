@@ -16,26 +16,22 @@ interface PointerState {
   pan: boolean;
 }
 
-// First-person tuning, in multiples of the scene scale (median splat distance from the origin).
+/** Interior eye height until the collision grid gives real metres, in multiples of the scene scale (median splat distance from the origin). */
 const EYE_HEIGHT = 0.06;
-const WALK_SPEED = 0.1; // per second
-const FLY_SPEED = 0.25;
 const RUN_FACTOR = 3;
 /** Arrow-key turn rate, rad/s. */
 const TURN_SPEED = 1.6;
 /**
- * One-finger look in first person, times the 1:1 "grab the world" rate. A phone's narrow view made 1:1 slow: a
- * full-width swipe turned ~32° in interior. Doubled, it turns ~64°.
+ * One-finger look in interior, times the 1:1 "grab the world" rate. A phone's narrow view made 1:1 slow: a
+ * full-width swipe turned ~32°. Doubled, it turns ~64°.
  */
 const TOUCH_LOOK_GAIN = 2;
 /**
- * Smoothing of a first-person drag-look, instead of `smoothing` (10, τ 100 ms): the view stays within ~1–2° of the
- * finger and stops with it. Before, it trailed by up to ~5° and kept turning sideways after the finger lifted.
+ * Smoothing of a one-finger drag (orbit and interior), instead of `smoothing` (10, τ 100 ms): the view stays close to
+ * the finger and stops with it. Before, it trailed the finger (in a quick orbit swipe by tens of degrees) and kept
+ * turning after it lifted.
  */
 const DRAG_LOOK_SMOOTHING = 30;
-/** First-person views may look almost straight up or down. */
-const LOOK_MIN_PHI = Math.PI * 0.03;
-const LOOK_MAX_PHI = Math.PI * 0.97;
 /**
  * Interior: a person's proportions in metres, turned into scene units by the collision grid's
  * units per metre (before the grid arrives, by the walk heuristic).
@@ -57,7 +53,7 @@ const INTERIOR = {
   MAX_PHI: (Math.PI * 11) / 12,
 };
 const MOVE_KEYS = new Set([
-  'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE',
+  'KeyW', 'KeyA', 'KeyS', 'KeyD',
   'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ShiftLeft', 'ShiftRight',
 ]);
 
@@ -75,8 +71,8 @@ const hermite = (a: number, b: number) => (t: number) => {
 const wrapAngle = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 
 /**
- * Camera controls: orbit around a pivot, or first-person navigation from an
- * eye position (walk on the ground, panorama look-around, free fly).
+ * Camera controls: orbit around a pivot, or walk the scene in first person
+ * (interior) from an eye position.
  *
  * Input only moves the *goal* state; `update(dt)` eases the current state
  * toward it with frame-rate independent exponential smoothing, which is what
@@ -105,8 +101,6 @@ export class OrbitControls {
   sceneScale = 1;
   /** User speed multiplier for first-person movement. */
   speed = 1;
-  /** Panorama mode zooms by field of view; the owner applies the factor. */
-  onFovZoom: ((factor: number) => void) | null = null;
 
   private navMode: NavigationMode = 'orbit';
   private theta = 0;
@@ -122,8 +116,6 @@ export class OrbitControls {
   private goalEye: Vec3 = [0, 0, 5];
   /** Height of the ground under the eye along `up`, from the owner's ground probe. */
   private ground: number | null = null;
-  /** Q/E adjust the eye height above the ground in walk mode. */
-  private eyeHeightScale = 1;
   /** Interior: what the camera may not walk through (null until the scene has fully loaded). */
   private collider: CollisionGrid | null = null;
   private readonly keys = new Set<string>();
@@ -174,9 +166,9 @@ export class OrbitControls {
     return this.navMode;
   }
 
-  /** Interior, walk and panorama keep the eye at `eyeHeight` above the ground. */
+  /** Interior keeps the eye at `eyeHeight` above the ground. */
   get followsGround() {
-    return this.navMode === 'interior' || this.navMode === 'walk' || this.navMode === 'look';
+    return this.navMode === 'interior';
   }
 
   /** The owner probes the ground for us, except in interior with a collision grid (it walks on the grid). */
@@ -185,8 +177,7 @@ export class OrbitControls {
   }
 
   get eyeHeight() {
-    if (this.navMode === 'interior') return INTERIOR.EYE * this.unitsPerMeter;
-    return EYE_HEIGHT * this.sceneScale * this.eyeHeightScale;
+    return INTERIOR.EYE * this.unitsPerMeter;
   }
 
   /**
@@ -263,7 +254,6 @@ export class OrbitControls {
     this.navMode = mode;
     this.eyeTravel = null;
     this.ground = null;
-    this.eyeHeightScale = 1;
     this.gyroLast = null;
     if (mode === 'orbit') {
       this.target = vec3.sub(this.eye, this.offset(this.theta, this.phi, this.radius));
@@ -378,10 +368,6 @@ export class OrbitControls {
 
   /** Same as `travelTo`, keeping the current viewing angle and distance (first person: walk there). */
   travelPivotTo(target: Vec3, durationMs = 1100) {
-    if (this.navMode === 'fly') {
-      this.travelEyeTo(vec3.add(this.goalEye, this.horizontal(vec3.sub(target, this.goalEye))));
-      return;
-    }
     if (this.navMode !== 'orbit') {
       this.walkTo(target);
       return;
@@ -392,7 +378,7 @@ export class OrbitControls {
   /**
    * First-person tap-to-go: glide toward a picked point and turn to face it.
    * Walking lands on picked ground (a point well below the eye) and stops short
-   * of walls; flying heads along the ray.
+   * of walls.
    */
   walkTo(point: Vec3) {
     const d = vec3.sub(point, this.goalEye);
@@ -409,8 +395,6 @@ export class OrbitControls {
       const stop = grid.walk(feet, vec3.add(feet, vec3.scale(flat, reach / Math.max(len, 1e-9))), this.body);
       this.ground = vec3.dot(stop, this.up);
       dest = vec3.add(stop, vec3.scale(this.up, this.eyeHeight));
-    } else if (this.navMode === 'fly') {
-      dest = vec3.add(this.goalEye, vec3.scale(d, 0.8));
     } else if (-vec3.dot(d, this.up) > 0.5 * this.eyeHeight) {
       this.ground = vec3.dot(point, this.up);
       dest = vec3.add(point, vec3.scale(this.up, this.eyeHeight));
@@ -577,20 +561,10 @@ export class OrbitControls {
     const key = (code: string) => (this.keys.has(code) ? 1 : 0);
     const turn = key('ArrowRight') - key('ArrowLeft');
     if (turn) this.lookBy(turn * TURN_SPEED * dt, 0);
-    if (this.navMode === 'look') {
-      const tilt = key('ArrowUp') - key('ArrowDown');
-      if (tilt) this.lookBy(0, tilt * TURN_SPEED * dt);
-    } else {
-      const forward = key('KeyW') - key('KeyS') + key('ArrowUp') - key('ArrowDown');
-      const strafe = key('KeyD') - key('KeyA');
-      const rise = key('KeyE') - key('KeyQ');
-      const run = key('ShiftLeft') || key('ShiftRight') ? RUN_FACTOR : 1;
-      if (rise && this.navMode === 'walk') {
-        this.eyeHeightScale = Math.min(20, Math.max(0.2, this.eyeHeightScale * Math.exp(rise * dt * 1.2)));
-        this.dirty = true;
-      }
-      this.moveBy(forward, strafe, this.navMode === 'fly' ? rise : 0, this.moveSpeed * run * dt);
-    }
+    const forward = key('KeyW') - key('KeyS') + key('ArrowUp') - key('ArrowDown');
+    const strafe = key('KeyD') - key('KeyA');
+    const run = key('ShiftLeft') || key('ShiftRight') ? RUN_FACTOR : 1;
+    this.moveBy(forward, strafe, this.moveSpeed * run * dt);
 
     if (this.eyeTravel) {
       const tr = this.eyeTravel;
@@ -607,8 +581,7 @@ export class OrbitControls {
   }
 
   private get moveSpeed() {
-    if (this.navMode === 'interior') return INTERIOR.SPEED * this.unitsPerMeter * this.speed;
-    return (this.navMode === 'fly' ? FLY_SPEED : WALK_SPEED) * this.sceneScale * this.speed;
+    return INTERIOR.SPEED * this.unitsPerMeter * this.speed;
   }
 
   /** The collision grid while in interior. */
@@ -641,13 +614,13 @@ export class OrbitControls {
     return vec3.sub(this.goalEye, this.offset(this.goalTheta, Math.PI / 2, 1));
   }
 
-  /** Moves the eye goal along the view: forward (walk: level), right, and up (`amount` world units). */
-  private moveBy(forward: number, right: number, rise: number, amount: number) {
-    if (!forward && !right && !rise) return;
+  /** Moves the eye goal along the view, level: forward and right (`amount` world units). */
+  private moveBy(forward: number, right: number, amount: number) {
+    if (!forward && !right) return;
     const look = vec3.scale(this.offset(this.goalTheta, this.goalPhi, 1), -1);
-    const ahead = this.navMode === 'fly' ? look : vec3.normalize(this.horizontal(look));
+    const ahead = vec3.normalize(this.horizontal(look));
     const side = vec3.normalize(vec3.cross(look, this.up));
-    const dir = vec3.add(vec3.add(vec3.scale(ahead, forward), vec3.scale(side, right)), vec3.scale(this.up, rise));
+    const dir = vec3.add(vec3.scale(ahead, forward), vec3.scale(side, right));
     const len = vec3.length(dir);
     if (len < 1e-6) return;
     this.eyeTravel = null;
@@ -667,9 +640,8 @@ export class OrbitControls {
 
   /** Turns the first-person view: positive yaw turns right, positive pitch looks up. */
   private lookBy(yaw: number, pitch: number) {
-    const [min, max] = this.navMode === 'interior' ? [INTERIOR.MIN_PHI, INTERIOR.MAX_PHI] : [LOOK_MIN_PHI, LOOK_MAX_PHI];
     this.goalTheta -= yaw;
-    this.goalPhi = Math.max(min, Math.min(max, this.goalPhi + pitch));
+    this.goalPhi = Math.max(INTERIOR.MIN_PHI, Math.min(INTERIOR.MAX_PHI, this.goalPhi + pitch));
     this.dirty = true;
   }
 
@@ -720,6 +692,9 @@ export class OrbitControls {
     }
     this.goalTheta -= ((2 * Math.PI * dx) / h) * this.rotateSpeed;
     this.goalPhi = this.clampPhi(this.goalPhi - ((2 * Math.PI * dy) / h) * this.rotateSpeed);
+    // A finger turns the orbit with it and stops with it, as in interior; before, a quick swipe lagged behind it
+    // by tens of degrees and kept turning after it lifted.
+    if (touch) this.dragLook = true;
   }
 
   private panBy(dx: number, dy: number) {
@@ -728,7 +703,7 @@ export class OrbitControls {
       // Two-finger drag moves like a joystick: up = forward, sideways = strafe. A mostly up/down drag walks
       // straight: the fingers' sideways drift no longer slides the camera.
       const side = Math.abs(dx) < 0.5 * Math.abs(dy) ? 0 : dx;
-      if (this.navMode !== 'look') this.moveBy(-dy, side, 0, (Math.hypot(side, dy) / h) * this.moveSpeed * 4);
+      this.moveBy(-dy, side, (Math.hypot(side, dy) / h) * this.moveSpeed * 4);
       return;
     }
     const worldPerPixel = (2 * this.goalRadius * Math.tan(this.fovY / 2)) / h;
@@ -742,10 +717,9 @@ export class OrbitControls {
     this.goalTarget = vec3.add(this.goalTarget, move);
   }
 
-  /** Zoom gesture: factor > 1 means "away" (orbit dolly out, first person back up / widen the view). */
+  /** Zoom gesture: factor > 1 means "away" (orbit dolly out, interior back up). */
   private dollyBy(factor: number) {
-    if (this.navMode === 'look') this.onFovZoom?.(factor);
-    else if (this.navMode !== 'orbit') this.moveBy(-Math.sign(Math.log(factor)), 0, 0, Math.abs(Math.log(factor)) * this.moveSpeed * 3);
+    if (this.navMode !== 'orbit') this.moveBy(-Math.sign(Math.log(factor)), 0, Math.abs(Math.log(factor)) * this.moveSpeed * 3);
     else this.goalRadius = this.clampRadius(this.goalRadius * factor);
   }
 

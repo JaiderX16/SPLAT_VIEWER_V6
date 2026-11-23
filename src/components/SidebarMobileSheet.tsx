@@ -16,9 +16,9 @@ export type SheetState = 'idle' | 'half' | 'full';
 // ============================================================================
 
 const IDLE_HEIGHT = 56;
-const HALF_RATIO = 0.6;
-// Grande: 85 % de la pantalla, pegada al borde inferior (sin redondeo abajo).
-const FULL_RATIO = 0.85;
+// Solo dos tamaños abierta: media (45 % de la pantalla) y grande (80 %, pegada al borde inferior, sin redondeo abajo).
+const HALF_RATIO = 0.45;
+const FULL_RATIO = 0.8;
 const IDLE_MAX_WIDTH = 320;
 const HALF_WIDTH_RATIO = 0.94;
 
@@ -378,31 +378,27 @@ const SidebarMobileSheet = ({
   // Latest drag height for pointer-up (the state can lag a move behind).
   const dragHeightRef = useRef<number | null>(null);
 
-  const baseSnaps = useSnapHeights(screenH);
+  const snapHeights = useSnapHeights(screenH);
 
   // What the sheet shows: the scene list, the uploader, or a panel from the dock.
   const view = panel ? `panel:${panel.title}` : uploading ? 'upload' : 'list';
   const fitted = view !== 'list';
 
-  // The uploader and the panels: "half" is exactly their height (up to "full"), no empty space under them.
+  // The uploader and the panels open at the size nearest to their content (as a drag snaps): a little over the medium
+  // size scrolls there instead of leaving the large one half empty. Decided once per view; dragging is the user's call.
   const sheetRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const fitRef = useRef<HTMLDivElement>(null);
-  const [fitHeight, setFitHeight] = useState<number | null>(null);
+  const sizedView = useRef<string | null>(null);
   useLayoutEffect(() => {
     const sheet = sheetRef.current, content = contentRef.current, inner = fitRef.current;
-    if (!fitted || !sheet || !content || !inner) return;
+    if (!fitted) sizedView.current = null;
+    if (!fitted || !sheet || !content || !inner || sizedView.current === view) return;
+    sizedView.current = view;
     // The sheet's own chrome (grabber, header, gap, borders) plus the content's height.
-    const measure = () => setFitHeight(sheet.offsetHeight - content.clientHeight + inner.offsetHeight);
-    measure();
-    const observer = new ResizeObserver(measure); // text reflows when the sheet widens; panels change
-    observer.observe(inner);
-    return () => observer.disconnect();
-  }, [fitted, view]);
-  const snapHeights = useMemo(
-    () => (fitted && fitHeight ? { ...baseSnaps, half: Math.min(fitHeight, baseSnaps.full) } : baseSnaps),
-    [fitted, fitHeight, baseSnaps]
-  );
+    const needed = sheet.offsetHeight - content.clientHeight + inner.offsetHeight;
+    if (sheetState === 'half' && needed > (snapHeights.half + snapHeights.full) / 2) onSheetStateChange('full');
+  }, [fitted, view, sheetState, snapHeights.half, snapHeights.full, onSheetStateChange]);
 
   // Altura final aplicada al sheet
   const currentH = dragHeight !== null ? dragHeight : snapHeights[sheetState];

@@ -96,9 +96,9 @@ const SORT_EPSILON = 1e-3;
 const CLICK_MAX_MOVE_PX = 5;
 const TAP_MAX_MOVE_PX = 10;
 const CLICK_MAX_MS = 500;
-/** Walk / panorama: how often the ground under the eye is re-probed while moving. */
+/** Interior without a collision grid: how often the ground under the eye is re-probed while moving. */
 const GROUND_PROBE_MS = 150;
-/** Entering walk / panorama from orbit lands this far (x scene scale) back from the pivot, facing it. */
+/** Entering interior from orbit lands this far (x scene scale) back from the pivot, facing it. */
 const STAND_BACK = 0.6;
 /** Cuánto gira la entrada hacia un encuadre guardado antes de posarse (135°). */
 const INTRO_SWEEP = Math.PI * 0.75;
@@ -165,7 +165,7 @@ export class SplatRenderer {
   private groundProbing = false;
   private lastGroundProbe = 0;
   private lastProbeEye: Vec3 | null = null;
-  /** Panorama and interior change the field of view; the user's FOV comes back when leaving them. */
+  /** A portrait interior widens the field of view; the user's FOV comes back when leaving it. */
   private fovBefore: number | null = null;
   private pickId = 0;
   private readonly pendingPicks = new Map<number, (point: Vec3 | null) => void>();
@@ -323,7 +323,6 @@ export class SplatRenderer {
     this.controls.onStart(() => {
       this.flyEndSpeed = null;
     });
-    this.controls.onFovZoom = (factor) => this.setFov(this.fovDeg * factor);
 
     this.worker = new Worker(new URL('./splat.worker.ts', import.meta.url), { type: 'module', name: 'splat-worker' });
     this.worker.onmessage = (e: MessageEvent<WorkerToMain>) => this.onWorkerMessage(e.data);
@@ -454,7 +453,7 @@ export class SplatRenderer {
     if (this.fovBefore !== null) this.setFov(this.fovBefore);
     const [w, h] = this.surf.size;
     const portraitInterior = mode === 'interior' && h > w;
-    this.fovBefore = mode === 'look' || portraitInterior ? this.fovDeg : null;
+    this.fovBefore = portraitInterior ? this.fovDeg : null;
     if (portraitInterior) this.setFov(INTERIOR_PORTRAIT_FOV);
     c.setMode(mode);
     if (from === 'orbit' && c.followsGround) void this.descendToGround(pivot, mode);
@@ -1072,7 +1071,7 @@ export class SplatRenderer {
   }
 
   // ─── First-person ground ───────────────────────────────────────────────────
-  /** Walk / panorama from orbit: glide down to eye height, standing back from the pivot and facing it. */
+  /** Interior from orbit: glide down to eye height, standing back from the pivot and facing it. */
   private async descendToGround(pivot: Vec3, mode: NavigationMode) {
     const c = this.controls;
     const token = ++this.navToken;
@@ -1091,7 +1090,7 @@ export class SplatRenderer {
     c.landAt(hit, pivot);
   }
 
-  /** Walk / panorama: keep sampling the ground under the eye so the camera rides terrain and steps. */
+  /** Interior without a collision grid: keep sampling the ground under the eye so the camera rides terrain and steps. */
   private probeGround(now: number) {
     const c = this.controls;
     if (!c.needsGroundProbe || c.isTravelling || this.groundProbing || now - this.lastGroundProbe < GROUND_PROBE_MS) return;

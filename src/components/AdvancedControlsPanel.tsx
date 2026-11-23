@@ -33,6 +33,22 @@ export interface AdvancedControlsPanelProps {
   embedded?: boolean;
 }
 
+/** The viewer's current settings, as the panel shows them (null: this viewer cannot do it). */
+function readViewer(viewer: SplatViewerHandle | null) {
+  return {
+    ortho: viewer?.getOrthographicMode() ?? false,
+    fov: viewer ? Math.round(viewer.getFov()) : 50,
+    supportsSH: viewer?.supportsSphericalHarmonics ?? true,
+    supportsLod: viewer?.supportsLod ?? false,
+    lod: viewer?.getLodQuality() ?? ('balanced' as LodQuality),
+    supportsHide: !!viewer?.setHideUnseen,
+    hideUnseen: viewer ? (viewer.getHideUnseen?.() ?? false) : true,
+    budget: viewer?.getSplatBudget?.() ?? null,
+    hideNoise: viewer?.getHideNoise?.() ?? null,
+    cutUnderground: viewer?.getCutUnderground?.() ?? null,
+  };
+}
+
 export default function AdvancedControlsPanel({
   viewerRef,
   visible,
@@ -41,35 +57,37 @@ export default function AdvancedControlsPanel({
   onToggleSceneBackground,
   embedded = false,
 }: AdvancedControlsPanelProps) {
-  const [ortho, setOrtho] = useState(false);
-  const [fov, setFov] = useState(50);
+  // Read at mount, not only in the effect below: the first layout is already the real one, so the phone sheet
+  // (which sizes itself to the panel as it opens) does not measure a panel still missing half its sections.
+  const [initial] = useState(() => readViewer(viewerRef.current));
+  const [ortho, setOrtho] = useState(initial.ortho);
+  const [fov, setFov] = useState(initial.fov);
   const [shDegree, setShDegree] = useState(0);
   const [grid, setGrid] = useState(false);
   const [axes, setAxes] = useState(false);
-  const [supportsSH, setSupportsSH] = useState(true);
-  const [supportsLod, setSupportsLod] = useState(false);
-  const [lod, setLod] = useState<LodQuality>('balanced');
-  const [hideUnseen, setHideUnseen] = useState(true);
-  const [supportsHide, setSupportsHide] = useState(false);
-  const [budget, setBudget] = useState<number | null>(null);
-  const [hideNoise, setHideNoise] = useState<boolean | null>(null);
-  const [cutUnderground, setCutUnderground] = useState<boolean | null>(null);
+  const [supportsSH, setSupportsSH] = useState(initial.supportsSH);
+  const [supportsLod, setSupportsLod] = useState(initial.supportsLod);
+  const [lod, setLod] = useState<LodQuality>(initial.lod);
+  const [hideUnseen, setHideUnseen] = useState(initial.hideUnseen);
+  const [supportsHide, setSupportsHide] = useState(initial.supportsHide);
+  const [budget, setBudget] = useState<number | null>(initial.budget);
+  const [hideNoise, setHideNoise] = useState<boolean | null>(initial.hideNoise);
+  const [cutUnderground, setCutUnderground] = useState<boolean | null>(initial.cutUnderground);
 
   // Sync state from viewer when panel becomes visible
   useEffect(() => {
-    if (!visible) return;
-    const viewer = viewerRef.current;
-    if (!viewer) return;
-    setOrtho(viewer.getOrthographicMode());
-    setFov(Math.round(viewer.getFov()));
-    setSupportsSH(viewer.supportsSphericalHarmonics);
-    setSupportsLod(viewer.supportsLod);
-    setLod(viewer.getLodQuality());
-    setSupportsHide(!!viewer.setHideUnseen);
-    setHideUnseen(viewer.getHideUnseen?.() ?? false);
-    setBudget(viewer.getSplatBudget?.() ?? null);
-    setHideNoise(viewer.getHideNoise?.() ?? null);
-    setCutUnderground(viewer.getCutUnderground?.() ?? null);
+    if (!visible || !viewerRef.current) return;
+    const s = readViewer(viewerRef.current);
+    setOrtho(s.ortho);
+    setFov(s.fov);
+    setSupportsSH(s.supportsSH);
+    setSupportsLod(s.supportsLod);
+    setLod(s.lod);
+    setSupportsHide(s.supportsHide);
+    setHideUnseen(s.hideUnseen);
+    setBudget(s.budget);
+    setHideNoise(s.hideNoise);
+    setCutUnderground(s.cutUnderground);
   }, [visible, viewerRef]);
 
   const handleApplyView = useCallback((view: CameraView) => {

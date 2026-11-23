@@ -61,13 +61,14 @@ const SceneUploader: React.FC<SceneUploaderProps> = ({ onLoadFile, onLoadURL, is
   }, [onLoadFile]);
 
   return (
-    <div className="w-full max-w-2xl mx-auto space-y-6">
+    // Compact enough to fit whole in the phone sheet's medium size (45 % of the screen).
+    <div className="w-full max-w-2xl mx-auto space-y-5">
       {/* Drag & Drop Zone */}
       <div
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
-        className={`relative border-2 border-dashed rounded-2xl p-10 text-center transition-all duration-300 cursor-pointer
+        className={`relative border-2 border-dashed rounded-2xl p-6 text-center transition-all duration-300 cursor-pointer
           ${dragOver ? 'border-sky-700 dark:border-sky-200 bg-black/[0.05] dark:bg-black/[0.20] scale-[1.02]' : 'border-black/[0.10] dark:border-white/[0.18] bg-black/[0.04] dark:bg-black/[0.20] hover:border-black/[0.16] dark:hover:border-white/[0.28] hover:bg-black/[0.06] dark:hover:bg-black/[0.14]'}
         `}
       >

@@ -1,4 +1,4 @@
-import { Compass, DoorOpen, Footprints, Orbit, Plane, ScanEye, Smartphone, X, type LucideIcon } from 'lucide-react';
+import { Compass, DoorOpen, Orbit, Smartphone, X, type LucideIcon } from 'lucide-react';
 import type { NavigationMode, NavigationSettings } from '@/lib/viewerHandle';
 
 type Hint = [input: string, action: string];
@@ -34,64 +34,6 @@ const NAVIGATION_MODES: ModeInfo[] = [
       ['1 dedo', 'Mirar alrededor'],
       ['2 dedos', 'Caminar (arriba = avanzar)'],
       ['Pellizcar', 'Avanzar / retroceder'],
-    ],
-  },
-  {
-    id: 'walk',
-    name: 'Recorrer',
-    description: 'Camina por espacios abiertos siguiendo el terreno.',
-    icon: Footprints,
-    mouse: [
-      ['Arrastrar', 'Mirar alrededor'],
-      ['W A S D · ↑ ↓', 'Caminar'],
-      ['← →', 'Girar'],
-      ['Q / E', 'Agacharte / elevarte'],
-      ['Shift', 'Correr'],
-      ['Rueda', 'Avanzar / retroceder'],
-      ['Clic', 'Caminar hasta ahí'],
-    ],
-    touch: [
-      ['1 dedo', 'Mirar alrededor'],
-      ['2 dedos', 'Caminar (arriba = avanzar)'],
-      ['Pellizcar', 'Avanzar / retroceder'],
-      ['Tocar', 'Caminar hasta ahí'],
-    ],
-  },
-  {
-    id: 'look',
-    name: 'Panorama',
-    description: 'Quédate en un punto, mira a tu alrededor y salta de un sitio a otro.',
-    icon: ScanEye,
-    mouse: [
-      ['Arrastrar', 'Mirar alrededor'],
-      ['Flechas', 'Girar la vista'],
-      ['Rueda', 'Zoom'],
-      ['Clic', 'Saltar hasta ahí'],
-    ],
-    touch: [
-      ['1 dedo', 'Mirar alrededor'],
-      ['Pellizcar', 'Zoom'],
-      ['Tocar', 'Saltar hasta ahí'],
-    ],
-  },
-  {
-    id: 'fly',
-    name: 'Vuelo libre',
-    description: 'Muévete en cualquier dirección, sin gravedad.',
-    icon: Plane,
-    mouse: [
-      ['Arrastrar', 'Mirar'],
-      ['W A S D', 'Volar'],
-      ['Q / E', 'Bajar / subir'],
-      ['Shift', 'Turbo'],
-      ['Rueda', 'Avanzar / retroceder'],
-      ['Clic', 'Volar hasta ahí'],
-    ],
-    touch: [
-      ['1 dedo', 'Mirar'],
-      ['2 dedos', 'Moverte'],
-      ['Pellizcar', 'Avanzar / retroceder'],
-      ['Tocar', 'Volar hasta ahí'],
     ],
   },
   {
@@ -190,7 +132,7 @@ export default function NavigationPanel({ settings, onChange, onClose, embedded 
         })}
       </div>
 
-      {(settings.mode === 'interior' || settings.mode === 'walk' || settings.mode === 'fly') && (
+      {settings.mode === 'interior' && (
         <div className="mt-3 flex items-center justify-between gap-3 pl-2">
           <span className={LABEL}>Velocidad</span>
           {/* pad 6 + 32px pill r16 = 22 */}
